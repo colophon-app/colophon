@@ -46,7 +46,8 @@ M1.9  发布自动化 + Sparkle + Homebrew ← 收官（但 EdDSA 私钥/SUFeedU
 
 > 目标：把三件「一失败就级联」的事先证掉。前置：M1.0 进行中即可并行。依据 research §15、D-M1-4/5。
 
-- [ ] **a) 前景着色机制单一化**（gates §2 样式化 / §8 专注 / §10 rubric）：在 macOS 15 **和** 26 上亲证「改显示属性 + `invalidateLayout(for:)` 可靠地重 vend 段落并重绘」（这条是**社区**报告非 Apple 确认，是动态刷新命门）。定**一个**三处共用机制：默认 `NSTextContentStorageDelegate` 显示属性；不成立退「当前行逐 run 上色 / scrim overlay」。**不以 `addRenderingAttribute` 为主**（FB9692714）。顺带写「从 AST 节点边界重建 marker 定界符偏移」的 helper + 测（`#`/`>`/列表符/`*`/`_`/`**`/反引号/`~~`/`[]()`，含嵌套强调、多反引号、引用链接、setext）。
+- [x] **a) 前景着色机制单一化**（gates §2 样式化 / §8 专注 / §10 rubric）：**已落锤（2026-07-22）**——机制 = `NSTextContentStorageDelegate` 按需 vend（天然视口化、治大文件性能）+ 逐段落兜底（即时正确）+ `edited(.editedCharacters,0)` 重 vend（选区保存/恢复防跳）。实测证伪 `invalidateLayout` 重 vend。已知边缘:大文件多行代码围栏编辑态背景滞后 → M2 tree-sitter。见 [decisions D-M1-4](./decisions.md)。✅
+  - [ ] **遗留(M1.0.5a 未做的)**：「从 AST 节点边界重建 marker 定界符偏移」的通用 helper(`*`/`_`/`**`/反引号/`~~`/`[]()`,含嵌套/多反引号/引用链接/setext)——M1.0 只做了标题 `#` 前缀弱化,其余定界符弱化留到 M1.1 样式产品化。
 - [x] **b) swift-cmark C-renderer 是否公开**（gates 预览 + 导出全部）：**源码核实完毕（2026-07-22）**——swift-cmark 0.8.0 公开 `.library` product `cmark-gfm`/`cmark-gfm-extensions`，`cmark_render_html` + `CMARK_OPT_SOURCEPOS`/`FOOTNOTES` + 扩展注册函数均公开;swift-markdown 已把同一 swift-cmark 拉进图 → 加 product 依赖无重复 target 冲突。**取分支① cmark C renderer**([decisions D-M1-5](./decisions.md))。✅
 - [~] **c) byte-exact 回归扩测**（在新写路径落地**前**）：已补 **BOM + CRLF + 无末尾**酷刑样本(`roundTripIsByteExact` 绿);emoji-offset 由 `MarkdownStylingTests` 覆盖。剩「智能标点默认/新写路径(原子替换/图片落盘/静默重载)」的矩阵随各阶段落地时补。部分完成。
 - [ ] （可选，M1.6 前）**TextKit 2 打字机 caret-rect** 探针：证局部 `ensureLayout` 能拿准 caret 矩形而不全量卡秒级。

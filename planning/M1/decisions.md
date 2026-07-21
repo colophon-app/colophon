@@ -37,7 +37,10 @@
 - **决定**：**三处（D2 源码样式化、D8 专注变暗、D10 rubric 光标行）共用同一个前景着色机制**。默认候选 = `NSTextContentStorageDelegate.textContentStorage(_:textParagraphWith:)` 返回带显示属性的 `NSTextParagraph` + `invalidateLayout(for:)` 刷新（不改源码字节、byte-safe、无 storage 抖动）；**不以 `NSTextLayoutManager.addRenderingAttribute` 为主**。兜底 = 当前行逐 run 上色（由 SourceRange 驱动，仅光标行）/ 半透明 scrim overlay。
 - **注意**：验证 agent 提醒——「`invalidateLayout(for:)` 会重新触发 delegate」这条是**社区**报告（FossilCoder，非 Apple DTS 确认），是整个动态刷新的命门，**M1.0.5 spike 第一关就要在 macOS 15/26 亲证**；不成立则退兜底。另需一个把 marker 位置从 AST 节点边界重建的 helper（swift-markdown 不给单个定界符的 SourceRange）。
 - **M1.0 实测新证**：M1.0 用的「整篇直接 `addAttributes`」在真实文件上零闪流畅，但在 1MB+ 单文件上是整篇上属性的性能悬崖（见 [D-M1-1](#d-m1-1--编辑内核起点--b-长出-m0-内核swift-markdown-engine-降为-m2-上游淘汰-codeedittextview) spike 结论）。这给「惰性 `NSTextContentStorageDelegate` 按需只给可视段落上样式」加了**实测动机**——M1.0.5a 优先验它能否既可靠重绘、又天然视口化（省掉 M1.0 里那个害滚动的独立 scroll 重上色）。
-- **状态**：机制单一化已定 · **M1.0.5 spike 定具体选与刷新法**（大文件性能是硬验收点之一）。
+- **M1.0.5a 落锤（2026-07-22，机制验证完成）**：**着色机制 = `NSTextContentStorageDelegate`**（`textContentStorage(_:textParagraphWith:)` 按需 vend 带样式的 `NSTextParagraph`；TextKit 2 懒布局 → **天然视口化,大文件不付整篇上属性代价**,同时治好 M1.0 那个性能悬崖）**+ 逐段落兜底**（全量 runs 陈旧时就地解析本段落 → 标题/行内即时正确、初始与编辑都不失样式）**+ `edited(.editedCharacters, changeInLength:0)` 重 vend（带选区保存/恢复防光标跳）**。三处（源码样式化/专注/rubric）共用这一套。
+  - **实测排除的坑**：① `invalidateLayout(for:)` **不**触发 delegate 重 vend（D-M1-4 那条社区传言,证伪）;② `edited(.editedCharacters,0)` 能重 vend 但会挪插入点 → **保存/恢复 `selectedRanges`** 压掉。
+  - **已知边缘限制**：**1MB+ 大文件**里编辑**多行代码围栏**时,因大文件走防抖后台重解析、逐段落兜底看不到跨行围栏上下文 → 淡背景在打字期间短暂消失、停手 ~0.4s 自愈。真实小文件（<20k,同步解析）无此问题。**正解 = M2 tree-sitter 增量解析**（打字时即知"在代码块内",无需整篇重解析）。M1 接受此取舍。
+- **状态**：**已落锤（M1.0.5a，2026-07-22）**。机制进 M1.1 产品化 + M1.6 专注 + M1.8 rubric 复用。
 
 ## D-M1-5 · 预览/导出 HTML 管线 = 优先 swift-cmark C renderer，pending「C API 是否公开」spike；绝不引第二个解析器
 
@@ -99,7 +102,7 @@
 | 1 | ~~内核 (b) 是否达标~~ **✅ 通过（2026-07-22）** | M1.0 | D-M1-1 |
 | 2 | undo 内建 vs 模型接管 | M1.0 | D-M1-3 |
 | 3 | AST-as-API 缝的接口签名 | M1.0 | architecture §7.2 |
-| 4 | 前景着色具体机制 + 动态刷新法 | M1.0.5 | D-M1-4 |
+| 4 | ~~前景着色机制 + 动态刷新法~~ **✅ delegate+兜底+edited重vend（2026-07-22）** | M1.0.5a | D-M1-4 |
 | 5 | ~~swift-cmark C-renderer 是否公开~~ **✅ 公开→分支①（2026-07-22）** | M1.0.5b | D-M1-5 |
 | 6 | CJK 分词器召回（真语料） | M1.5 | D-M1-6 |
 | 7 | 默认主题/字体/暗色 accent（macOS 26 真机像素定） | M1.8 | D-M1-12、design-direction |

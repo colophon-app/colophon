@@ -5,24 +5,28 @@
 //
 //  A source editor bridged from AppKit. Uses TextKit 2 explicitly and NEVER touches
 //  `.layoutManager` — a single read of that property silently downgrades the view to
-//  TextKit 1 (macOS 26 included).
+//  TextKit 1 (macOS 26 included). The TextKit 2 accessor `.textLayoutManager` is fine.
 //
-//  M1.0 spike: applies swift-markdown AST-driven *source styling* (MarkdownSyntaxStyler)
-//  as display attributes. The source string is never mutated, so byte-exact saving is
-//  untouched (saves read `textView.string`, never attributes).
+//  Styling mechanism (M1.0.5a decision D-M1-4): an NSTextContentStorageDelegate vends a
+//  styled NSTextParagraph on demand as TextKit lays out each paragraph. Because TextKit 2
+//  lays out lazily (viewport + overdraw), styling is naturally viewport-scoped — only
+//  visible paragraphs are ever styled, so large documents never pay a whole-document
+//  attribute pass. The source string is never mutated (byte-exact intact; saves read
+//  `textView.string`).
 //
-//  Performance (M1 research §D2): swift-markdown has NO incremental reparse, so styling
-//  cost scales with document size. Strategy is size-adaptive:
-//    • small/typical docs  → style SYNCHRONOUSLY on edit (a few ms) so a freshly typed
-//      character appears already-styled — no debounce "flash to size";
-//    • larger docs         → parse off the main thread on a debounce (longer for very
-//      large docs) so active typing never blocks; styling catches up when typing pauses.
-//  Whole-document attribute application keeps scrolling smooth (no per-scroll restyle).
-//  Viewport-scoped and incremental styling for multi-MB files is an M1.1 optimization.
+//  M1.0.5a finding: `invalidateLayout(for:)` does NOT re-vend the delegate (the paragraph
+//  keeps its previous styling). Two mechanisms make dynamic styling correct instead:
+//   (1) the delegate falls back to parsing the paragraph in isolation when the whole-
+//       document runs are stale (mid-edit / before the async parse lands) — so headings
+//       and inline styling are always correct immediately; and
+//   (2) after a reparse, an `NSTextStorage.edited(.editedCharacters, changeInLength: 0)`
+//       signal (guarded against re-entrancy) forces the visible paragraphs to be re-vended
+//       so multi-line constructs (fenced code) upgrade to the whole-document result.
 //
-//  Attribute-application mechanism (M1.0.5 decision D-M1-4): direct `addAttributes` on
-//  the content storage's backing NSTextStorage (reliable redraw). The
-//  NSTextContentStorageDelegate display-attribute path is the M1.0.5 spike's job.
+//  Parsing (M1 research §D2, no incremental reparse): whole-document parse, size-adaptive
+//  — synchronous for small/typical docs (fresh runs before the paragraph is vended, so no
+//  flash), background+debounced for large docs. The run map is the only cross-paragraph
+//  state; the delegate applies it per paragraph.
 //
 
 import AppKit
@@ -38,6 +42,7 @@ struct MarkdownTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         // --- TextKit 2 stack, built by hand (never use scrollableTextView()) ---
         let contentStorage = NSTextContentStorage()
+        contentStorage.delegate = context.coordinator  // lazy per-paragraph styling
         let textLayoutManager = NSTextLayoutManager()
         contentStorage.addTextLayoutManager(textLayoutManager)
 
@@ -74,7 +79,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.contentStorage = contentStorage
-        context.coordinator.applyStyling(source: .load)
+        context.coordinator.textLayoutManager = textLayoutManager
+        context.coordinator.reparse(trigger: .load)
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
@@ -89,91 +95,159 @@ struct MarkdownTextView: NSViewRepresentable {
         // Only write back on a real change (avoids an update loop and caret jumps).
         if textView.string != text {
             textView.string = text
-            context.coordinator.applyStyling(source: .load)
+            context.coordinator.reparse(trigger: .load)
         }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        enum StyleTrigger { case load, edit }
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextContentStorageDelegate {
+        enum Trigger { case load, edit }
 
         private let text: Binding<String>
         weak var textView: NSTextView?
         weak var contentStorage: NSTextContentStorage?
+        weak var textLayoutManager: NSTextLayoutManager?
 
         let baseFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         private let baseFontSize: CGFloat = 14
+        private let syncMaxLength = 20_000  // below → parse synchronously (no flash)
+        private let hugeMinLength = 200_000
 
-        // Size adaptivity (UTF-16 units).
-        private let syncMaxLength = 20_000  // below → style synchronously (no flash)
-        private let hugeMinLength = 200_000  // above → long debounce (smooth active typing)
-
-        private var styleGeneration = 0
+        // The run map and the source length it was computed for (a cheap staleness proxy:
+        // if the storage length no longer matches, the runs are stale → style base-only
+        // until the reparse lands and re-vends).
+        private var runs: [StyleRun] = []
+        private var runsSourceLength = 0
+        private var generation = 0
         private var pending: DispatchWorkItem?
+        private var isRestyling = false  // true while we post the re-vend signal (below)
 
         init(text: Binding<String>) {
             self.text = text
         }
 
+        // MARK: - NSTextViewDelegate
+
         func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            guard !isRestyling, let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
-            applyStyling(source: .edit)
+            reparse(trigger: .edit)
         }
 
-        func applyStyling(source trigger: StyleTrigger) {
-            pending?.cancel()
-            guard let text = textView?.string else { return }
-            let length = (text as NSString).length
+        // MARK: - NSTextContentStorageDelegate (lazy per-paragraph styling)
 
-            // Small/typical documents: style synchronously so a freshly typed character
-            // is already the right size — no debounce flash.
+        func textContentStorage(
+            _ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange
+        ) -> NSTextParagraph? {
+            guard let storage = textContentStorage.textStorage else { return nil }
+            let paragraph = NSMutableAttributedString(
+                attributedString: storage.attributedSubstring(from: range))
+            let local = NSRange(location: 0, length: paragraph.length)
+            paragraph.setAttributes(
+                [.font: baseFont, .foregroundColor: NSColor.labelColor], range: local)
+
+            if storage.length == runsSourceLength {
+                // Whole-document runs are current — fully correct (handles fenced code, etc.).
+                for run in runs {
+                    let intersection = NSIntersectionRange(run.range, range)
+                    if intersection.length > 0 {
+                        let localRange = NSRange(
+                            location: intersection.location - range.location,
+                            length: intersection.length)
+                        paragraph.addAttributes(run.attributes, range: localRange)
+                    }
+                }
+            } else {
+                // Runs are stale (mid-edit, or before the initial async parse landed). Parse
+                // THIS paragraph in isolation for immediate, correct heading/inline styling.
+                // Its runs are already paragraph-local. (Fenced code spanning paragraphs is
+                // upgraded once the whole-document runs land and re-vend — see below.)
+                let paraRuns = MarkdownSyntaxStyler.styleRuns(
+                    for: paragraph.string, baseFontSize: baseFontSize)
+                for run in paraRuns where NSMaxRange(run.range) <= paragraph.length {
+                    paragraph.addAttributes(run.attributes, range: run.range)
+                }
+            }
+            return NSTextParagraph(attributedString: paragraph)
+        }
+
+        // MARK: - Parse + invalidate
+
+        func reparse(trigger: Trigger) {
+            pending?.cancel()
+            guard let source = textView?.string else { return }
+            let length = (source as NSString).length
+
+            // Small/typical docs: parse synchronously so runs are fresh before the edited
+            // paragraph is re-vended — no flash.
             if length <= syncMaxLength {
-                styleGeneration += 1
-                let runs = MarkdownSyntaxStyler.styleRuns(for: text, baseFontSize: baseFontSize)
-                render(runs: runs, expecting: text)
+                generation += 1
+                runs = MarkdownSyntaxStyler.styleRuns(for: source, baseFontSize: baseFontSize)
+                runsSourceLength = length
+                invalidateStyling()
                 return
             }
 
-            // Larger documents: parse off the main thread. Load is immediate; edits are
-            // debounced — longer for very large docs so active typing never blocks.
             let delay: TimeInterval
             switch trigger {
             case .load: delay = 0
-            case .edit: delay = length > hugeMinLength ? 0.6 : 0.12
+            case .edit: delay = length > hugeMinLength ? 0.4 : 0.12
             }
-            let item = DispatchWorkItem { [weak self] in self?.parseInBackground() }
+            let item = DispatchWorkItem { [weak self] in self?.reparseInBackground() }
             pending = item
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
         }
 
-        private func parseInBackground() {
+        private func reparseInBackground() {
             guard let source = textView?.string else { return }
-            styleGeneration += 1
-            let generation = styleGeneration
+            generation += 1
+            let generationAtStart = generation
             let size = baseFontSize
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let runs = MarkdownSyntaxStyler.styleRuns(for: source, baseFontSize: size)
+                let computed = MarkdownSyntaxStyler.styleRuns(for: source, baseFontSize: size)
                 DispatchQueue.main.async {
-                    guard let self, generation == self.styleGeneration else { return }
-                    self.render(runs: runs, expecting: source)
+                    guard let self, generationAtStart == self.generation,
+                        self.textView?.string == source
+                    else { return }
+                    self.runs = computed
+                    self.runsSourceLength = (source as NSString).length
+                    self.invalidateStyling()
                 }
             }
         }
 
-        /// Apply base attributes + the runs over the whole document. Skips if the buffer
-        /// changed since the runs were computed (never applies stale ranges).
-        private func render(runs: [StyleRun], expecting source: String) {
-            guard let storage = contentStorage?.textStorage, let textView,
-                textView.string == source
-            else { return }
-            let full = NSRange(location: 0, length: (source as NSString).length)
+        /// Force the content-storage delegate to re-vend the visible paragraphs so fresh
+        /// whole-document runs take effect. `invalidateLayout(for:)` does NOT re-vend
+        /// (M1.0.5a finding); signalling a zero-length character edit does — the content
+        /// storage re-creates the affected text elements via the delegate. The source
+        /// string is unchanged (changeInLength: 0), so byte-exactness is preserved. The
+        /// `isRestyling` flag stops the resulting notification from re-entering as an edit.
+        private func invalidateStyling() {
+            guard let storage = contentStorage?.textStorage, let textView else { return }
+            let full = storage.length
+            guard full > 0 else { return }
+            let visible = visibleCharacterRange() ?? NSRange(location: 0, length: full)
+            let clamped = NSIntersectionRange(visible, NSRange(location: 0, length: full))
+            guard clamped.length > 0 else { return }
+            // The zero-length character-edit signal makes the text system think characters
+            // changed and moves the insertion point. Save the selection and put it back so
+            // the caret does not jump.
+            let savedSelection = textView.selectedRanges
+            isRestyling = true
             storage.beginEditing()
-            storage.setAttributes(
-                [.font: baseFont, .foregroundColor: NSColor.labelColor], range: full)
-            for run in runs where NSMaxRange(run.range) <= full.length {
-                storage.addAttributes(run.attributes, range: run.range)
-            }
+            storage.edited(.editedCharacters, range: clamped, changeInLength: 0)
             storage.endEditing()
+            textView.selectedRanges = savedSelection
+            isRestyling = false
+        }
+
+        private func visibleCharacterRange() -> NSRange? {
+            guard let content = contentStorage,
+                let viewport = textLayoutManager?.textViewportLayoutController.viewportRange
+            else { return nil }
+            let start = content.offset(from: content.documentRange.location, to: viewport.location)
+            let end = content.offset(from: content.documentRange.location, to: viewport.endLocation)
+            guard start >= 0, end >= start else { return nil }
+            return NSRange(location: start, length: end - start)
         }
     }
 }
