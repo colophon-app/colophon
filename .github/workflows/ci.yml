@@ -20,15 +20,15 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
-      # Build the app and the test targets (no signing needed — no cert yet).
-      # Switches to `xcodebuild test` once we add real unit tests.
-      - name: Build (app + tests)
+      # Build the app and run the unit tests (no signing needed — no cert yet).
+      - name: Build & test
         run: |
           set -o pipefail
-          xcodebuild build-for-testing \
+          xcodebuild test \
             -project Colophon/Colophon.xcodeproj \
             -scheme Colophon \
             -destination 'platform=macOS' \
+            -only-testing:ColophonTests \
             CODE_SIGNING_ALLOWED=NO
 
       # swift-format ships with the toolchain — no extra dependency.

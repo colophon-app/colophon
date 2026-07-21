@@ -75,16 +75,12 @@ final class LibraryModel: ObservableObject {
             return
         }
         do {
-            let data = try Data(contentsOf: url)
-            // Strict UTF-8: refuse rather than lossy-decode and corrupt the file.
-            guard let string = String(data: data, encoding: .utf8) else {
-                text = ""
-                report(
-                    "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
-                )
-                return
-            }
-            text = string
+            text = try MarkdownFileIO.read(url)
+        } catch MarkdownFileIO.IOError.notValidUTF8 {
+            text = ""
+            report(
+                "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
+            )
         } catch {
             text = ""
             report("Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)")
@@ -93,14 +89,8 @@ final class LibraryModel: ObservableObject {
 
     func save() {
         guard let url = selectedFile else { return }
-        guard let data = text.data(using: .utf8) else {
-            report("Couldn't encode the document as UTF-8.")
-            return
-        }
         do {
-            // Atomic write (write-to-temp then rename). Final I/O API (metadata
-            // preservation / file coordination) is decided in M1.
-            try data.write(to: url, options: [.atomic])
+            try MarkdownFileIO.write(text, to: url)
         } catch {
             report("Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)")
         }
