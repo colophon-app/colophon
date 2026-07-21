@@ -1,0 +1,44 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug. Please fill in the fields below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Type …
+        3. See …
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 15.5 or 26.1"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Colophon version
+      placeholder: "e.g. 0.1.0 or a commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample Markdown (if the bug involves specific content)
+      description: The smallest `.md` snippet that triggers the problem. Critical for parsing/rendering/saving bugs.
+      render: markdown

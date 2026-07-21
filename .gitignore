@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+# NOTE: do NOT ignore Package.resolved — it must be committed for reproducible builds.
+
+# Signing & secrets (never commit)
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+*.pem
+AuthKey_*.p8
+ExportOptions.local.plist
+
+# Fastlane / tooling output
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Claude Code (local/personal — shared config lives in .claude/rules/ and is committed)
+.claude/settings.local.json
+
+# Misc
+*.log

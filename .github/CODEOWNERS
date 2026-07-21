@@ -1,0 +1,5 @@
+# Code owners — required reviewers for matching paths.
+# TODO: add a second maintainer as soon as one is onboarded — single-maintainer
+# risk is the #1 killer of OSS editors (see docs/03-windows-legacy.md).
+
+* @catRiceY

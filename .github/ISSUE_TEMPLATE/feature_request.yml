@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an idea for Colophon
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Colophon aims to stay simple and focused. Please describe the problem you're
+        trying to solve, not just the feature — it helps us find the most restrained fix.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / prior art
+      description: Do other editors do this? How? (See `docs/` for our survey.)
