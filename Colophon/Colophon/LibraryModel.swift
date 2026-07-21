@@ -33,8 +33,8 @@ final class LibraryModel: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "Open"
-        panel.message = "Choose a folder of Markdown files."
+        panel.prompt = String(localized: "Open")
+        panel.message = String(localized: "Choose a folder of Markdown files.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         // Session-scoped access to the chosen folder (and its descendants).
@@ -79,11 +79,19 @@ final class LibraryModel: ObservableObject {
         } catch MarkdownFileIO.IOError.notValidUTF8 {
             text = ""
             report(
-                "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
+                String(
+                    localized:
+                        "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
+                )
             )
         } catch {
             text = ""
-            report("Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)")
+            report(
+                String(
+                    localized:
+                        "Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)"
+                )
+            )
         }
     }
 
@@ -92,7 +100,12 @@ final class LibraryModel: ObservableObject {
         do {
             try MarkdownFileIO.write(text, to: url)
         } catch {
-            report("Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)")
+            report(
+                String(
+                    localized:
+                        "Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)"
+                )
+            )
         }
     }
 
@@ -102,7 +115,7 @@ final class LibraryModel: ObservableObject {
         NSSound.beep()
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 }

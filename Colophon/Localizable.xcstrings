@@ -1,0 +1,53 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "\"%@\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file." : {
+
+    },
+    "Choose a folder of Markdown files." : {
+
+    },
+    "Couldn't open \"%@\": %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't open \"%1$@\": %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't save \"%@\": %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't save \"%1$@\": %2$@"
+          }
+        }
+      }
+    },
+    "No .md files in this folder" : {
+
+    },
+    "OK" : {
+
+    },
+    "Open" : {
+
+    },
+    "Open a folder to begin" : {
+
+    },
+    "Open Folder…" : {
+
+    },
+    "Save" : {
+
+    },
+    "Select a file" : {
+
+    }
+  },
+  "version" : "1.1"
+}

@@ -16,9 +16,16 @@ struct ContentView: View {
                 Button {
                     model.openFolder()
                 } label: {
-                    Label(
-                        model.folderURL?.lastPathComponent ?? "Open Folder…",
-                        systemImage: "folder")
+                    if let name = model.folderURL?.lastPathComponent {
+                        // A folder name is content, not UI copy — never localize it.
+                        Label {
+                            Text(verbatim: name)
+                        } icon: {
+                            Image(systemName: "folder")
+                        }
+                    } else {
+                        Label("Open Folder…", systemImage: "folder")
+                    }
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
@@ -31,7 +38,7 @@ struct ContentView: View {
                     placeholder("No .md files in this folder", systemImage: "doc.text")
                 } else {
                     List(model.files, id: \.self, selection: $model.selectedFile) { url in
-                        Text(url.lastPathComponent)
+                        Text(verbatim: url.lastPathComponent)
                     }
                 }
             }
@@ -55,7 +62,7 @@ struct ContentView: View {
         }
     }
 
-    private func placeholder(_ title: String, systemImage: String) -> some View {
+    private func placeholder(_ title: LocalizedStringKey, systemImage: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: systemImage)
                 .font(.largeTitle)

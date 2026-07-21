@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		20BD96A5300FA756001CA366 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 20BD96A4300FA756001CA366 /* Localizable.xcstrings */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		20BD9664300F92B8001CA366 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		20BD9656300F92B7001CA366 /* Colophon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Colophon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		20BD9663300F92B8001CA366 /* ColophonTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ColophonTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20BD966D300F92B8001CA366 /* ColophonUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ColophonUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20BD96A4300FA756001CA366 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +80,7 @@
 		20BD964D300F92B7001CA366 = {
 			isa = PBXGroup;
 			children = (
+				20BD96A4300FA756001CA366 /* Localizable.xcstrings */,
 				20BD9658300F92B7001CA366 /* Colophon */,
 				20BD9666300F92B8001CA366 /* ColophonTests */,
 				20BD9670300F92B8001CA366 /* ColophonUITests */,
@@ -212,6 +218,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				20BD96A5300FA756001CA366 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -329,6 +336,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -386,6 +394,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Release;
 		};
