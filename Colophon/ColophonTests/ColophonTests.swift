@@ -23,6 +23,11 @@ struct MarkdownFileIOTests {
             "windows\r\nline\r\nendings\r\n",
             "mixed\nline\r\nendings\n",
             "unicode: cafe \u{2014} \u{201C}curly\u{201D} \u{2014} \u{4E2D}\u{6587} \u{1F600}\n",
+            // Byte-exact torture cases (mirror spike/fixtures/crlf-bom-no-trailing.md):
+            // UTF-8 BOM must be preserved, CRLF must not become LF, and a missing
+            // trailing newline must stay missing (architecture §3.2).
+            "\u{FEFF}# BOM + CRLF + no trailing\r\n\r\nsecond line\r\nlast line, no newline",
+            "\u{FEFF}bom then a single LF\n",
             "",
         ]
         for sample in samples {

@@ -28,7 +28,8 @@
 - **背景**：完备性批判指出 undo 模型在 findings 5/6/9 反复以「open decision」出现却无人拍板，而语义快捷键、列表续行、图片粘贴、静默重载、自动保存**全都依赖它**——不定死会到处冒双重撤销 bug。
 - **决定**：**undo 入口在 L2（不可变契约）**；所有编辑意图收口到一个模型层原语（草案名 `applyTextEdit(range:replacement:newSelection:)`），由它统一注册单步 undo（含反向编辑）、`breakUndoCoalescing()` 隔离命令、再经 `shouldChangeText → replaceCharacters → didChangeText` 推给 NSTextView。**具体是「NSTextView 内建 undo + 模型旁听」还是「关掉内建、模型全权接管」——作为 M1.0 spike 的一等输出落锤**（依赖内核起点）。
 - **理由**：未来 AI 层（L6）经 AST API 改文档也必须走同一 undo 栈，否则路线 B 的 checkpoint 回滚与普通 undo 割裂。
-- **状态**：入口在 L2 已定（契约）· 整合方式 **M1.0 spike 落锤**。
+- **M1.0 结论（2026-07-22）**：选 (b)（自有裸 `NSTextView`）后，undo 控制权**完全在我们手里**——不像 (a) 自带 per-document undo 抢控制权。故 architecture §5「undo 入口在 L2」**可达、无内核阻碍**。整合方式（保留 NSTextView 内建 undo + 模型旁听 vs 关掉内建、模型全权接管）是**小实现细节，随 M1.1 建 L2 `DocumentModel` + M1.3 建编辑原语 `applyTextEdit` 时定**，不构成风险，故不在 spike 写 throwaway 代码验证。
+- **状态**：入口在 L2 已定（契约）· 无内核阻碍已确认（M1.0）· 整合方式随 **M1.1/M1.3** 落地。
 
 ## D-M1-4 · 前景着色机制单一化（源码样式化 / 专注变暗 / rubric 高亮共用一个），M1.0.5 spike 定选
 
