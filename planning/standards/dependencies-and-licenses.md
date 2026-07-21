@@ -76,14 +76,14 @@
 | `swift-cmark`（swiftlang） | BSD 系 | `swift-markdown` 的传递依赖 | 不单独声明，跟随 `swift-markdown`；**安全更新要跟**（cmark-gfm 历史有多起多项式复杂度 DoS CVE，见 §3.4） |
 | `SwiftTreeSitter`（ChimeHQ）+ tree-sitter 核心 | MIT | 编辑内核：增量高亮 | 与 `swift-markdown`（全量 AST）互补的「增量解析」侧；是否引入取决于高亮方案 spike（§6） |
 | `Neon`（ChimeHQ） | BSD-3 | 编辑内核：把 tree-sitter 结果映射为文本属性 | 「解析结果→TextKit 属性」的中间件；与 `SwiftTreeSitter` 配套 |
-| `Highlightr` | MIT | 编辑内核：代码块高亮（起步） | JSCore 跑 highlight.js；M1 快速出效果用，注意节流/缓存 |
-| `HighlighterSwift` | MIT | 编辑内核：代码块高亮（替代候选） | `swift-markdown-engine` 所用；若采用该引擎则可能随之进来（§5） |
+| `HighlighterSwift` | MIT | 编辑内核：代码块高亮（原生，**M1 不接**） | 取代已停更的 `Highlightr`（见下方 ❌ 表 / [M1/decisions.md](../M1/decisions.md) D-M1-11）。**M1 编辑区代码围栏只做等宽 + 淡背景、不引 JSCore（D-M1-10）**；本库作原生高亮的保留选项，M2 或确需时再接 |
+| `GRDB.swift`（groue） | MIT | 文件层：全文搜索索引（SQLite FTS5） | M1 搜索用（[M1/decisions.md](../M1/decisions.md) D-M1-6）；GRDB 7 自带 `SQLITE_ENABLE_FTS5`，SPM 即用；须配 CJK 分词器（`FTS5WrapperTokenizer`）。索引存 app 容器、**绝不写进用户 vault** |
 | `SwiftMath` | MIT | 编辑内核：行内数学（原生 CoreText） | iosMath 血统；覆盖常用 LaTeX 子集；WebView 侧另有 KaTeX 兜底 |
 | `KaTeX` | MIT | WebView：预览/导出数学 | vendored JS（§4）；编辑反馈优先用它（同步快渲染） |
 | `Mermaid` | MIT | WebView：图表 | vendored JS（§4）；无原生替代，只能在 WebView 跑 |
 | `Shiki` | MIT | WebView：预览端代码高亮 | vendored JS（§4）；观感优于 hljs；注意 WASM 体积与初始化开销 |
 | `MathJax`（若选它替 KaTeX） | Apache-2.0 | WebView：导出/学术场景数学 | 覆盖面全、无障碍好；KaTeX vs MathJax 最终取舍见 §6 |
-| `highlight.js`（若 Shiki 太重） | BSD-3 | WebView：预览端代码高亮（备选） | 轻快、精度一般 |
+| `highlight.js` | BSD-3 | WebView：预览端代码高亮（**M1 起步**） | **M1 预览区代码高亮的一等公民起步**（配复制按钮 + 语言标签）；Shiki 作观感升级（[M1/decisions.md](../M1/decisions.md) D-M1-10） |
 
 #### ⚠️ 慎用（可用但带条件，引入前必须在 `decisions.md` 记明理由与退出方案）
 
@@ -101,6 +101,7 @@
 | `Down` | **实质停更**（最后提交约 2023-07，README 长期挂「寻找维护者」）；能力已被 `swift-markdown` + 自定义渲染取代（`docs/09`） |
 | `Ink`（John Sundell） | **休眠 + 合规缺口**（最后提交约 2024-03，明确不追求完整 CommonMark 合规，评测有「部分文件渲染就是不对」的 dealbreaker）（`docs/09`） |
 | `SwiftDown` | **已归档**（最后提交约 2024-02）——「SwiftUI 包装第三方编辑组件」的又一个弃坑案例（`docs/09`） |
+| `Highlightr` | **2026 已停更**（其 README 自己跳转 `HighlighterSwift`）——触发 §1.2 第 1 闸「停更库一律不引」。原 ✅ 表条目已移除，改用 `HighlighterSwift`（见 ✅ 表 / [M1/decisions.md](../M1/decisions.md) D-M1-11）。M1 调研（research §D4 对抗验证）实证其停更 |
 | Electron / Tauri / 无头 Chrome（Awesomium 等嵌入式内核） | 架构红线（PRD §7）；且 `docs/03` 反复验证「小众/停维护的嵌入式渲染内核先于产品死亡」（Awesomium / Qt WebKit / NW.js 全部拖垮宿主产品） |
 
 > **提醒**：`STTextView`、`Down`、`Ink`、`SwiftDown` 里有大量「已趟过的坑」和值得抄的架构。禁用的是**依赖它们**，不是**读它们**——只读借鉴规则见 §2.3。
@@ -202,7 +203,7 @@
 以下项**依赖尚未拍板的决策或未跑的 spike**，现在写死会变成技术债；先留边界、到点再定，并把结论记进对应里程碑的 `decisions.md`：
 
 - **编辑内核起点最终选型**：fork `swift-markdown-engine` vs 从零 `NSTextView`+TextKit 2 vs `CodeEditTextView` —— 留到 **M1 spike**（PRD §12.4）。§5 只是「若选前者的条款」，不是「已选前者」。
-- **编辑区代码块高亮方案**：`Highlightr`（起步）vs `HighlighterSwift`（若随 swift-markdown-engine 进来）vs `tree-sitter`+`Neon`（进阶）—— 取决于内核选型与性能实测（M1/M2）。
+- **编辑区代码块高亮方案**：**M1 已定**（[M1/decisions.md](../M1/decisions.md) D-M1-10）——M1 编辑区只等宽 + 淡背景（不引 JSCore），预览区用 `highlight.js` 起步；`HighlighterSwift`（原生，取代停更的 `Highlightr`）与 `tree-sitter`+`Neon`（增量）留到 M2。
 - **实时高亮是否引入 `SwiftTreeSitter`+`Neon`**：即「增量解析侧」是否需要，取决于 `swift-markdown` 全量解析在真实文档上的延迟表现（M1 实测）。
 - **预览层是否用原生渲染替代/补充 WKWebView**：`swift-markdown-ui`/`Textual` vs `WKWebView` —— 涉及 Mermaid/KaTeX 只能在 WebView 跑的约束，留到有真实性能数据时定（M1/M2）。
 - **数学与代码高亮的 WebView 侧最终取舍**：KaTeX vs MathJax（编辑反馈 vs 导出/学术）、Shiki vs highlight.js（观感 vs 体积）—— M1 出预览子系统时定。
