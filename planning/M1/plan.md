@@ -31,13 +31,14 @@ M1.9  发布自动化 + Sparkle + Homebrew ← 收官（但 EdDSA 私钥/SUFeedU
 
 > 目标：**一次 hands-on spike 同时钉死三件下游全依赖的事**，别带着 open decision 出关。前置：M0 骨架。依据 research §14（spike 设计 Day0–Day3）、D-M1-1/3。
 
-- [ ] **Day 0**：建 spike 分支 + 语料库（映射 DoD 风险）：Moby Dick(~1.2MB, Bear 55ms 基准)、真 `CLAUDE.md`/`.mdc`(YAML frontmatter+代码 fence+智能引号陷阱)、GFM kitchen-sink(表格/任务/脚注/LaTeX/mermaid)、CRLF+BOM+无末尾换行文件、CJK+emoji 文件。`swift-markdown` 走 SPM 加入、resolve、提交 `Package.resolved`。
-- [ ] **Day 1（内核样式化切片）**：扩 `MarkdownTextView`：后台解析（§4.1）→ 遍历 AST → 每个 SourceRange(UTF-8)→NSRange(UTF-16) **仔细映射** → 标题字号/粗体/**保留但弱化的标记**用 TextKit 2 属性经 `NSTextContentStorage`+`NSTextLayoutManager` 上（**绝不读 `.layoutManager`**）。编辑防抖重解析。验收：标记留在源码、样式显示、Moby Dick 打字 ~60fps。
+- [x] **Day 0**：建 spike 分支 + 语料库（[spike/fixtures/](../../spike/fixtures/)：`agent-file.mdc`、`gfm-kitchen-sink.md`、`cjk-emoji.md`、`crlf-bom-no-trailing.md`、1.1MB `large-synthetic.md`〔gitignore〕）。`swift-markdown 0.8.0` 经 SPM 加入（`Markdown` 产品 → Colophon target，upToNextMinor），`Package.resolved` 已提交。✅
+- [x] **Day 1（内核样式化切片）**：`SourceRangeMapper`（UTF-8↔UTF-16，CJK/emoji 单测过）+ `MarkdownSyntaxStyler`（AST→run：标题/粗/斜/代码/`#` 弱化）+ `MarkdownTextView` 后台解析 + 大小分档（<20k 同步零闪、大文件长防抖）。验收：标记留源码 ✅、样式正确 ✅、CJK byte-exact ✅、真实文件即时零闪 ✅。**实测：1MB+ 单文件打字慢 → 主因是 M0 桥每键把整篇字符串过 SwiftUI @Binding（→ L2 模型，M1.1）+ 整篇 addAttributes（→ 惰性 delegate 着色，M1.0.5a）。见 [decisions D-M1-1](./decisions.md) spike 结论。** ✅
+  - [ ] **遗留小项（M1.3 输入法）**：组字期间（`hasMarkedText`）不重上样式的守卫。
 - [ ] **Day 2（分屏 + byte-exact + undo 缝）**：加 `⌘\` WKWebView 预览（swift-markdown→HTML→loadHTMLString，行锚同步 + 反馈环 guard）。跑 byte-exact 回归：每个语料 open→noop-edit→save，断言逐字节相同（对 M0 的 `MarkdownFileIO`）。证 undo 缝：把一条编辑意图路由过一个**持有 UndoManager 的 stub L2 模型**，证明 architecture §5「undo 入口在模型层」可达而不与内核打架。
 - [ ] **Day 3（大文档滚动稳定 + a/c 确认探针）**：压 M1 唯一真「岩浆」项——Moby Dick 视口估算滚动跳；跳则试缓存 fragment 高度/稳定锚点，记录能否稳。然后两个**严格限时（各 ~2h）**探针（只为守「换/box-out」判据，不是构建）：(a) clone swift-markdown-engine 跑 demo，查有无 source-only 模式、验 byte-exact + 不碰 `.layoutManager` + Apache-2.0，勾勒 M2 经 L1/L2 缝 drop-in 的样子；(c) 把 CodeEditTextView 丢进 scratch view 样式化，记自绘布局分歧 + 代码编辑器假设，确认它 M2 重写风险更高。
 - [ ] **落锤**：结果记进 `decisions.md`（回填 D-M1-1/3、architecture §8/§9）：内核起点、M1 是否引 tree-sitter（预期否 D-M1-2）、undo 整合方式。**(b) 过 → spike 分支即 M1 内核种子**。
 - [ ] **顺手办两件发布前置**（M1.9 才用但现在办）：`generate_keys` 生成 **Sparkle EdDSA 私钥并异地离线备份**；把 `SUFeedURL` 定好写进 Info.plist（首个签名构建前）。
-- [ ] **改 standards**：执行 D-M1-11（Highlightr→HighlighterSwift、加 GRDB.swift、确认 swift-markdown）改 `planning/standards/dependencies-and-licenses.md` §2.2。
+- [x] **改 standards**：执行 D-M1-11（Highlightr→HighlighterSwift、加 GRDB.swift、确认 swift-markdown）改 `planning/standards/dependencies-and-licenses.md` §2.2。✅
 
 **坑**：SourceRange 是 UTF-8 行列、NSTextView 是 UTF-16——CJK/emoji 不做转换会错位甚至改错字节（byte-exact 命门）；`.layoutManager` 只读一次即静默降 TextKit 1（Code review 必查，加 grep lint）；别在 Day 3 就去做标记隐藏/自定义 fragment（那是 M2 岩浆池）；swift-markdown **无增量重解析**——全靠防抖+后台+视口化。
 

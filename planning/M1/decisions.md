@@ -12,8 +12,10 @@
 - **决定**：M1 内核 = **(b)**——在 M0 已交付的 [`MarkdownTextView.swift`](../../Colophon/Colophon/MarkdownTextView.swift) 上，加「swift-markdown 全量 AST → NSRange 属性映射」的源码样式化 + WKWebView 分屏预览。**swift-markdown-engine（Apache-2.0）不作 M1 内核，改当 M2 混合渲染的上游**（同 TextKit 2 底座，M2 是平移不是重写）。**CodeEditTextView 淘汰**。
 - **理由**：① M1 只要源码样式化（不要混合渲染，那是 M2）——这不过是标准 TextKit 2 属性映射，进不了「岩浆池」，而 M0 骨架已合规就绪。② 现在 fork (a) 会把它「解析器统一管几何 + 标记隐藏 + **自带 per-document undo/编辑状态**」的强意见栈塞进来，**与我们「源码唯一真相 / AST 派生 / undo 入口在 L2」的契约直接冲突**——对抗性验证抓出单维度调研原本推 (a) 却与 model 层 undo 自相矛盾（因 swift-markdown-engine 自己持有编辑状态和 undo）；且它 pre-1.0、单人、AI 代写，是 ROADMAP 明列的「依赖内核死亡」单点风险，**为 M1 零收益**。③ (c) 非 TextKit、自绘布局、为代码而非散文——选它 = M2 撕掉重来（docs/09 的方案 C 陷阱）。
 - **注意**：无论如何，byte-exact 往返必须穿过样式层存活；绝不读 `.layoutManager`（审 (a) 源码时也查）；SourceRange(UTF-8) ↔ NSRange(UTF-16) 映射对 CJK/emoji 必须有测试。
-- **状态**：方向已锁 · **M1.0 spike 亲验**（跑通 → 定为 M1 内核种子；跑不通的兜底见下）。
-- **兜底**：若 (b) 在 Moby Dick 上达不到 ~60fps/大文档滚动稳，**平移到 (a)**（版本锁定 fork、源码样式化模式，接受 pre-1.0 风险，且顺带把 M1+M2 收敛到一个引擎）；(c) 是最后手段（仅当两条 TextKit 2 路都过不了大文档稳定性时）。
+- **M1.0 spike 实测结论（2026-07-22，(b) 通过 → 确认）**：在现有 [`MarkdownTextView.swift`](../../Colophon/Colophon/MarkdownTextView.swift) 上做 swift-markdown 全量 AST → NSRange 属性映射。实测：样式正确；**CJK/emoji byte-exact 正确（`MarkdownStylingTests` 单测 + 肉眼双验，粗体/斜体/代码精确落在中文上）**；**大文档滚动稳定**（1.1MB 合成文件丝滑不跳——spike 的硬门通过）；真实文件（<20k，同步上样式）**即时零闪丝滑**。**内核 = 长出 M0，落锤。**
+  - **实测逼出的两条优化**（换 (a)/(c) 也救不了、不改变本决策）：① 超大单文件（1MB+）打字/删除慢的**主因是 M0 桥每键把整篇源码字符串过一遍 SwiftUI `@Binding`**（O(n)/键的拷贝+比较+状态传播）→ 需 **L2 `DocumentModel` 让 `NSTextStorage` 自持真相源**（architecture §2.2，**M1.1**）；② 样式那步是**整篇 `addAttributes`** → 需**惰性 `NSTextContentStorageDelegate`** 按需只给可视段落上样式（见 [D-M1-4](#d-m1-4--前景着色机制单一化源码样式化--专注变暗--rubric-高亮共用一个m105-spike-定选)，**M1.0.5a**）。tree-sitter 增量高亮仍是 **M2**。
+  - **未走兜底**：(b) 达标，无需平移 (a)。(c) 在大文件编辑上虽快，但 box out M2 且上面两条优化对任何内核都通用、不足以触发切换判据。
+- **状态**：**已通过（M1.0，2026-07-22）**。spike 分支即 M1 内核种子。undo 整合（[D-M1-3](#d-m1-3--undo-归属--l2-模型层拥有入口内建-undo-的整合方式由-m10-spike-落锤)）留 Day-2 验；tree-sitter 不引（[D-M1-2](#d-m1-2--m1-不引-tree-sittertextkit-2-源码样式化--swift-markdown-全量-ast-属性映射防抖)）确认。
 
 ## D-M1-2 · M1 不引 tree-sitter；源码样式化 = swift-markdown 全量 AST 属性映射（防抖）
 
@@ -33,7 +35,8 @@
 - **背景**：批判抓出矛盾——finding 2 说「**绝不**用 `NSTextLayoutManager` rendering attributes（FB9692714：macOS 26 重绘不可靠，Apple DTS 证实），改用 `NSTextContentStorageDelegate` 显示属性」；finding 8 却把 rendering attributes 当专注变暗的**主**机制；finding 10 也依赖它做光标行 rubric 高亮。三者不可能同时对，且各建一套 = 同一原语三份互不兼容的实现。
 - **决定**：**三处（D2 源码样式化、D8 专注变暗、D10 rubric 光标行）共用同一个前景着色机制**。默认候选 = `NSTextContentStorageDelegate.textContentStorage(_:textParagraphWith:)` 返回带显示属性的 `NSTextParagraph` + `invalidateLayout(for:)` 刷新（不改源码字节、byte-safe、无 storage 抖动）；**不以 `NSTextLayoutManager.addRenderingAttribute` 为主**。兜底 = 当前行逐 run 上色（由 SourceRange 驱动，仅光标行）/ 半透明 scrim overlay。
 - **注意**：验证 agent 提醒——「`invalidateLayout(for:)` 会重新触发 delegate」这条是**社区**报告（FossilCoder，非 Apple DTS 确认），是整个动态刷新的命门，**M1.0.5 spike 第一关就要在 macOS 15/26 亲证**；不成立则退兜底。另需一个把 marker 位置从 AST 节点边界重建的 helper（swift-markdown 不给单个定界符的 SourceRange）。
-- **状态**：机制单一化已定 · **M1.0.5 spike 定具体选与刷新法**。
+- **M1.0 实测新证**：M1.0 用的「整篇直接 `addAttributes`」在真实文件上零闪流畅，但在 1MB+ 单文件上是整篇上属性的性能悬崖（见 [D-M1-1](#d-m1-1--编辑内核起点--b-长出-m0-内核swift-markdown-engine-降为-m2-上游淘汰-codeedittextview) spike 结论）。这给「惰性 `NSTextContentStorageDelegate` 按需只给可视段落上样式」加了**实测动机**——M1.0.5a 优先验它能否既可靠重绘、又天然视口化（省掉 M1.0 里那个害滚动的独立 scroll 重上色）。
+- **状态**：机制单一化已定 · **M1.0.5 spike 定具体选与刷新法**（大文件性能是硬验收点之一）。
 
 ## D-M1-5 · 预览/导出 HTML 管线 = 优先 swift-cmark C renderer，pending「C API 是否公开」spike；绝不引第二个解析器
 
@@ -90,7 +93,7 @@
 
 | # | 待落锤 | 在哪关 | 关联决策 |
 |---|---|---|---|
-| 1 | 内核 (b) 是否达标（否则平移 a） | M1.0 | D-M1-1 |
+| 1 | ~~内核 (b) 是否达标~~ **✅ 通过（2026-07-22）** | M1.0 | D-M1-1 |
 | 2 | undo 内建 vs 模型接管 | M1.0 | D-M1-3 |
 | 3 | AST-as-API 缝的接口签名 | M1.0 | architecture §7.2 |
 | 4 | 前景着色具体机制 + 动态刷新法 | M1.0.5 | D-M1-4 |
