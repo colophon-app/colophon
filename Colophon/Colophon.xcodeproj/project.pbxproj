@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		20BD96A5300FA756001CA366 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 20BD96A4300FA756001CA366 /* Localizable.xcstrings */; };
+		20BD96C4300FD07A001CA366 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 20BD96C3300FD07A001CA366 /* Markdown */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				20BD96C4300FD07A001CA366 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			);
 			name = Colophon;
 			packageProductDependencies = (
+				20BD96C3300FD07A001CA366 /* Markdown */,
 			);
 			productName = Colophon;
 			productReference = 20BD9656300F92B7001CA366 /* Colophon.app */;
@@ -201,6 +204,9 @@
 			);
 			mainGroup = 20BD964D300F92B7001CA366;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				20BD96C2300FD07A001CA366 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 20BD9657300F92B7001CA366 /* Products */;
 			projectDirPath = "";
@@ -620,6 +626,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		20BD96C2300FD07A001CA366 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-markdown";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		20BD96C3300FD07A001CA366 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 20BD96C2300FD07A001CA366 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 20BD964E300F92B7001CA366 /* Project object */;
 }

@@ -19,7 +19,11 @@ final class LibraryModel: ObservableObject {
     @Published var selectedFile: URL? {
         didSet {
             guard selectedFile != oldValue else { return }
-            loadSelected()
+            // The List sets this during a SwiftUI view update; loading here would publish
+            // `text` mid-update ("Publishing changes from within view updates"). Defer to
+            // the next runloop turn so the publish happens outside the update. (The proper
+            // structural fix is the L2 DocumentModel — architecture §2.2, M1.1.)
+            DispatchQueue.main.async { [weak self] in self?.loadSelected() }
         }
     }
 

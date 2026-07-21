@@ -1,0 +1,28 @@
+---
+description: "Example rule file — tests byte-exact fidelity of frontmatter"
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: false
+version: 0.1
+---
+
+# Coding rules
+
+Straight quotes must stay straight: "double" and 'single' — never curled.
+En/em dashes must stay ASCII: a range 1--10 and an aside -- like this -- must NOT
+become — or – on save. Three dots ... must not become an ellipsis character.
+
+## Fences must survive verbatim
+
+```ts
+// A code fence with "quotes", 'apostrophes', and -- dashes -- inside.
+const x: number = 1 // trailing comment
+export const greeting = "hello world"
+```
+
+- [ ] An open task
+- [x] A done task
+- Ordinary bullet with **bold** and *italic* and `inline code`.
+
+> A blockquote referencing AGENTS.md and CLAUDE.md.
+
+See also: `llms.txt`, `SKILL.md`.
