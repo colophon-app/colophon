@@ -16,8 +16,9 @@ struct ContentView: View {
                 Button {
                     model.openFolder()
                 } label: {
-                    Label(model.folderURL?.lastPathComponent ?? "Open Folder…",
-                          systemImage: "folder")
+                    Label(
+                        model.folderURL?.lastPathComponent ?? "Open Folder…",
+                        systemImage: "folder")
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)

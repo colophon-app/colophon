@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-lint:
+    name: build-and-lint
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      # Build the app and the test targets (no signing needed — no cert yet).
+      # Switches to `xcodebuild test` once we add real unit tests.
+      - name: Build (app + tests)
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Colophon/Colophon.xcodeproj \
+            -scheme Colophon \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # swift-format ships with the toolchain — no extra dependency.
+      - name: Format lint
+        run: |
+          xcrun swift-format lint --strict --recursive \
+            --configuration .swift-format \
+            Colophon/Colophon Colophon/ColophonTests Colophon/ColophonUITests

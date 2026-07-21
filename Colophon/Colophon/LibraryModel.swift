@@ -7,9 +7,9 @@
 //  load one (strict UTF-8), edit, and save atomically. No proprietary state.
 //
 
-import SwiftUI
 import AppKit
 import Combine
+import SwiftUI
 
 @MainActor
 final class LibraryModel: ObservableObject {
@@ -53,14 +53,17 @@ final class LibraryModel: ObservableObject {
             files = []
             return
         }
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: folderURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles])) ?? []
-        files = contents
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])) ?? []
+        files =
+            contents
             .filter { ["md", "markdown"].contains($0.pathExtension.lowercased()) }
             .sorted {
-                $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+                $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent)
+                    == .orderedAscending
             }
     }
 
@@ -76,7 +79,9 @@ final class LibraryModel: ObservableObject {
             // Strict UTF-8: refuse rather than lossy-decode and corrupt the file.
             guard let string = String(data: data, encoding: .utf8) else {
                 text = ""
-                report("\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file.")
+                report(
+                    "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
+                )
                 return
             }
             text = string

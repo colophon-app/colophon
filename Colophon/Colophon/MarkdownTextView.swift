@@ -8,8 +8,8 @@
 //  of that property silently downgrades the view to TextKit 1 (macOS 26 included).
 //
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
@@ -24,7 +24,8 @@ struct MarkdownTextView: NSViewRepresentable {
         let layoutManager = NSTextLayoutManager()
         contentStorage.addTextLayoutManager(layoutManager)
 
-        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        let container = NSTextContainer(
+            size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         layoutManager.textContainer = container
 
@@ -48,7 +49,8 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 16, height: 16)
 
         textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
