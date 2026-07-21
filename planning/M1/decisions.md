@@ -43,7 +43,9 @@
 
 - **背景**：**最高优先级待验证声明**——findings 3/4/6/11（预览、GFM、预览内图片、导出）**全押** swift-cmark 公开暴露 `cmark_render_html` + GFM/footnote/sourcepos 扩展 C API。但 Apple 的 swift-cmark 历来只把 cmark 当内部/SPI target 供 swift-markdown 用，**未必**作公开产品。若为假，一次失败**级联**打穿预览+GFM渲染+预览图片+导出四处。
 - **决定**：**M1.0.5 先 spike 核实**（看 Package.swift 的 product/target 可见性，别信 README）。① 若公开：预览/导出 HTML 走 **cmark C renderer**（safe 模式、开 `CMARK_OPT_SOURCEPOS` 拿 `data-sourcepos`、注册与编辑器一致的 GFM 扩展、并开 `CMARK_OPT_FOOTNOTES` 补 swift-markdown 默认关掉的脚注）。② 若不公开：退**自写 `MarkupVisitor`** 遍历 swift-markdown AST 直接产 HTML（顺带复用同一次解析、避免重复 target 冲突）。**两种都绝不引 markdown-it 之类第二个解析器**（会与编辑器 cmark-gfm 方言分叉）。滚动同步锚点 = `data-sourcepos` 块级行号 + 二分 + 线性插值；驱动权模型防反馈环。
-- **状态**：方向已锁（优先 cmark、否则 visitor、单解析器）· **M1.0.5 spike 定分支**。回填 architecture §9。
+- **M1.0.5b 核实（2026-07-22，源码级，取分支①）**：读 swift-cmark 0.8.0 的 `Package.swift` + 头文件确认——它**公开暴露 `.library` product `cmark-gfm` 与 `cmark-gfm-extensions`**；`cmark-gfm.h` 里 **`cmark_render_html(...)` 公开声明**、`CMARK_OPT_SOURCEPOS (1<<1)`、`CMARK_OPT_FOOTNOTES (1<<13)` 均定义；扩展注册函数 `cmark_gfm_core_extensions_ensure_registered()` 等齐全。swift-markdown 本身即 `import cmark_gfm`/`import cmark_gfm_extensions`。**批判担心的「swift-cmark 只作内部 SPI、不公开」在 0.8.0 已证伪。** → **取分支①：预览/导出走 cmark C renderer**（safe 模式 + `SOURCEPOS` + `FOOTNOTES` + 注册 GFM 扩展）。
+  - **消费法**：给我们的 target **加 `cmark-gfm` + `cmark-gfm-extensions` 两个 product 依赖**。因 swift-markdown 已把**同一** swift-cmark（0.8.0）拉进依赖图，SPM 共用一份 → **无「重复 target」冲突**；`import cmark_gfm`，`cmark_render_html(node, CMARK_OPT_SOURCEPOS | CMARK_OPT_FOOTNOTES, exts)`。每次 bump 复核同 revision（BSD-2）。
+- **状态**：**已定分支①（cmark C renderer，M1.0.5b 源码核实）**。落地在 M1.4 预览子系统。回填 architecture §9。
 
 ## D-M1-6 · 搜索 = 三面板混合（内存标题索引 + SQLite FTS5/GRDB + 独立命令面板），CJK 分词器是硬验收
 
@@ -98,6 +100,6 @@
 | 2 | undo 内建 vs 模型接管 | M1.0 | D-M1-3 |
 | 3 | AST-as-API 缝的接口签名 | M1.0 | architecture §7.2 |
 | 4 | 前景着色具体机制 + 动态刷新法 | M1.0.5 | D-M1-4 |
-| 5 | swift-cmark C-renderer 是否公开 → 管线分支 | M1.0.5 | D-M1-5 |
+| 5 | ~~swift-cmark C-renderer 是否公开~~ **✅ 公开→分支①（2026-07-22）** | M1.0.5b | D-M1-5 |
 | 6 | CJK 分词器召回（真语料） | M1.5 | D-M1-6 |
 | 7 | 默认主题/字体/暗色 accent（macOS 26 真机像素定） | M1.8 | D-M1-12、design-direction |

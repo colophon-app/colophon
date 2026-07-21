@@ -47,8 +47,8 @@ M1.9  发布自动化 + Sparkle + Homebrew ← 收官（但 EdDSA 私钥/SUFeedU
 > 目标：把三件「一失败就级联」的事先证掉。前置：M1.0 进行中即可并行。依据 research §15、D-M1-4/5。
 
 - [ ] **a) 前景着色机制单一化**（gates §2 样式化 / §8 专注 / §10 rubric）：在 macOS 15 **和** 26 上亲证「改显示属性 + `invalidateLayout(for:)` 可靠地重 vend 段落并重绘」（这条是**社区**报告非 Apple 确认，是动态刷新命门）。定**一个**三处共用机制：默认 `NSTextContentStorageDelegate` 显示属性；不成立退「当前行逐 run 上色 / scrim overlay」。**不以 `addRenderingAttribute` 为主**（FB9692714）。顺带写「从 AST 节点边界重建 marker 定界符偏移」的 helper + 测（`#`/`>`/列表符/`*`/`_`/`**`/反引号/`~~`/`[]()`，含嵌套强调、多反引号、引用链接、setext）。
-- [ ] **b) swift-cmark C-renderer 是否公开**（gates 预览 + 导出全部）：**看 swift-cmark 的 Package.swift product/target 可见性**（别信 README），确认能否 `import` 并调 `cmark_render_html` + 注册 GFM 扩展 + `CMARK_OPT_SOURCEPOS` + `CMARK_OPT_FOOTNOTES`。定 D-M1-5 分支：公开→cmark 管线；不公开→自写 `MarkupVisitor` 产 HTML（emit `data-sourcepos` = `markup.range`→line）。**两者都不引 markdown-it。**
-- [ ] **c) byte-exact 回归扩测**（在新写路径落地**前**）：把 M0 的往返测扩到覆盖 M1 每条新写/变换路径的矩阵：CRLF / BOM / 无末尾换行 / emoji-offset / 智能标点默认（启动注册的 5 个 `NSAutomatic*`）。这套是每个后续阶段的准入回归。
+- [x] **b) swift-cmark C-renderer 是否公开**（gates 预览 + 导出全部）：**源码核实完毕（2026-07-22）**——swift-cmark 0.8.0 公开 `.library` product `cmark-gfm`/`cmark-gfm-extensions`，`cmark_render_html` + `CMARK_OPT_SOURCEPOS`/`FOOTNOTES` + 扩展注册函数均公开;swift-markdown 已把同一 swift-cmark 拉进图 → 加 product 依赖无重复 target 冲突。**取分支① cmark C renderer**([decisions D-M1-5](./decisions.md))。✅
+- [~] **c) byte-exact 回归扩测**（在新写路径落地**前**）：已补 **BOM + CRLF + 无末尾**酷刑样本(`roundTripIsByteExact` 绿);emoji-offset 由 `MarkdownStylingTests` 覆盖。剩「智能标点默认/新写路径(原子替换/图片落盘/静默重载)」的矩阵随各阶段落地时补。部分完成。
 - [ ] （可选，M1.6 前）**TextKit 2 打字机 caret-rect** 探针：证局部 `ensureLayout` 能拿准 caret 矩形而不全量卡秒级。
 
 **坑**：三处着色各建一套 = 三份互斥实现（本关就是来消矛盾的）；swift-cmark 若不公开而你没先验，预览+导出+GFM+预览图片会**一起**塌（correlated failure）；回归扩测**必须先于**写路径，不然是「先污染再发现」。
