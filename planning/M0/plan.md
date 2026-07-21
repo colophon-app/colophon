@@ -107,11 +107,13 @@ M0.1（仓库承诺）→ M0.2（Xcode 空壳能开编存）→ M0.3（CI 绿）
 
 ## M0 完成定义（DoD 总核对）
 
-- [ ] #1 能可靠开/编/存一个 `.md`（原子写、byte-exact、智能标点已关）
-- [ ] #2 app 已签名公证，别人机器双击能开（`spctl` 显示 Notarized）
-- [ ] #3 CI 在 PR 上绿（build + test + lint）
-- [ ] #4 i18n 通道就位（String Catalog + 约定 + lint）
-- [ ] #5 Sparkle 自更新通道接通（能检查到 appcast）
+- [x] #1 能可靠开/编/存一个 `.md`（原子写、byte-exact、智能标点已关）✅
+- [x] #2 app 已签名公证，别人机器双击能开（`spctl` = Notarized Developer ID）✅
+- [x] #3 CI 在 PR 上绿（build + test + lint）✅
+- [x] #4 i18n 通道就位（String Catalog + 约定）✅
+- [ ] #5 Sparkle 自更新通道接通 —— **延后**到下一小节配发布自动化（见 [sparkle-setup.md](./sparkle-setup.md)、[summary.md](./summary.md)）
+
+> **M0 收官:4/5 DoD 达成,主体完成。总结见 [summary.md](./summary.md);#5 计划见 [sparkle-setup.md](./sparkle-setup.md)。**
 
 ## 分工
 

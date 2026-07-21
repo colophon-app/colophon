@@ -27,3 +27,9 @@
 - **决定**：M0 保存用 `.atomic`（写临时文件→rename）满足原子语义。
 - **理由**：足够满足 M0 的 byte-exact + 不写坏文件；`.atomic` 换 inode/可能丢 xattr、`replaceItemAt` 在 iCloud 下偶发 NSCocoaError 513——元数据保留 vs NSFileCoordinator 协调的**最终选型留到 M1**（architecture §3.1）。
 - **状态**：已定（M1 D5 spike 后定终态）。
+
+## D-M0-5 · Sparkle 自更新 + 发布自动化，延后到下一小节一起做（2026-07-21）
+
+- **决定**：M0.5 的 Sparkle 自更新（DoD#5）不在本次做，与「发布自动化（`release.yml`）」合并为下一个专注小节。M0 以 **4/5 DoD** 落在一个干净里程碑；自更新计划已就绪（[sparkle-setup.md](./sparkle-setup.md)）。
+- **理由**：① Sparkle 消费的 appcast 由发布流程产出，二者是一个功能的两半，一起做才是完整闭环、避免重复连线；② Sparkle 是全程最琐碎、唯一碰签名的一块（entitlements 合并细节需 `codesign` 亲验），更适合清醒专注时段做；③ DoD#1–4 已达成，在高点落袋。
+- **状态**：已定（可复核）。入口见 [sparkle-setup.md](./sparkle-setup.md)。
