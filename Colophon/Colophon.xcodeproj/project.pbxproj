@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		20BD96A5300FA756001CA366 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 20BD96A4300FA756001CA366 /* Localizable.xcstrings */; };
 		20BD96C4300FD07A001CA366 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 20BD96C3300FD07A001CA366 /* Markdown */; };
+		20BD970C301067CE001CA366 /* cmark-gfm in Frameworks */ = {isa = PBXBuildFile; productRef = 20BD970B301067CE001CA366 /* cmark-gfm */; };
+		20BD970E301067CE001CA366 /* cmark-gfm-extensions in Frameworks */ = {isa = PBXBuildFile; productRef = 20BD970D301067CE001CA366 /* cmark-gfm-extensions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +60,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				20BD970C301067CE001CA366 /* cmark-gfm in Frameworks */,
+				20BD970E301067CE001CA366 /* cmark-gfm-extensions in Frameworks */,
 				20BD96C4300FD07A001CA366 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -121,6 +125,8 @@
 			name = Colophon;
 			packageProductDependencies = (
 				20BD96C3300FD07A001CA366 /* Markdown */,
+				20BD970B301067CE001CA366 /* cmark-gfm */,
+				20BD970D301067CE001CA366 /* cmark-gfm-extensions */,
 			);
 			productName = Colophon;
 			productReference = 20BD9656300F92B7001CA366 /* Colophon.app */;
@@ -206,6 +212,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				20BD96C2300FD07A001CA366 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				20BD970A301067CE001CA366 /* XCRemoteSwiftPackageReference "swift-cmark" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 20BD9657300F92B7001CA366 /* Products */;
@@ -417,7 +424,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
@@ -468,7 +475,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
@@ -636,6 +643,14 @@
 				minimumVersion = 0.8.0;
 			};
 		};
+		20BD970A301067CE001CA366 /* XCRemoteSwiftPackageReference "swift-cmark" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-cmark";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -643,6 +658,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 20BD96C2300FD07A001CA366 /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
+		};
+		20BD970B301067CE001CA366 /* cmark-gfm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 20BD970A301067CE001CA366 /* XCRemoteSwiftPackageReference "swift-cmark" */;
+			productName = "cmark-gfm";
+		};
+		20BD970D301067CE001CA366 /* cmark-gfm-extensions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 20BD970A301067CE001CA366 /* XCRemoteSwiftPackageReference "swift-cmark" */;
+			productName = "cmark-gfm-extensions";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

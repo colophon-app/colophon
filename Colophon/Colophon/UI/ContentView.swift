@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var model: LibraryModel
     @State private var isChoosingFolder = false
+    @State private var showPreview = false
 
     var body: some View {
         NavigationSplitView {
@@ -48,18 +49,33 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 280)
         } detail: {
-            // Editor
+            // Editor + optional split preview
             if model.selectedFile != nil {
-                MarkdownTextView(text: $model.text)
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                model.save()
-                            } label: {
-                                Label("Save", systemImage: "square.and.arrow.down")
-                            }
+                HSplitView {
+                    MarkdownTextView(text: $model.text)
+                        .frame(minWidth: 320)
+                    if showPreview {
+                        PreviewWebView(markdown: model.text)
+                            .frame(minWidth: 320)
+                    }
+                }
+                .toolbar {
+                    ToolbarItem {
+                        Button {
+                            showPreview.toggle()
+                        } label: {
+                            Label("Preview", systemImage: "sidebar.right")
+                        }
+                        .keyboardShortcut("\\", modifiers: .command)
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            model.save()
+                        } label: {
+                            Label("Save", systemImage: "square.and.arrow.down")
                         }
                     }
+                }
             } else {
                 placeholder("Select a file", systemImage: "doc.text")
             }
