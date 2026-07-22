@@ -33,7 +33,12 @@ struct PreviewWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        // isInspectable defaults to false on macOS 13.3+; enable it in debug for Web Inspector.
+        #if DEBUG
+            webView.isInspectable = true
+        #endif
         sync.webView = webView
+        CodeHighlighter.shared.warm()  // pre-init JSCore so the first render isn't cold
         context.coordinator.render(markdown, in: webView)
         return webView
     }
@@ -46,17 +51,28 @@ struct PreviewWebView: NSViewRepresentable {
         private let sync: PreviewSync
         private var lastMarkdown: String?
         private var pending: DispatchWorkItem?
+        private var generation = 0  // main-thread only; drops stale async highlight results
 
         init(sync: PreviewSync) { self.sync = sync }
 
-        /// Debounced re-render (the editor pushes `markdown` on every keystroke).
+        /// Debounced re-render (the editor pushes `markdown` on every keystroke). The cmark
+        /// parse + JSCore highlight pass runs OFF the main thread; only `loadHTMLString` hops
+        /// back to main. A generation token drops a slow result that a newer keystroke has
+        /// already superseded (highlighting is async, so results can land out of date).
         func render(_ markdown: String, in webView: WKWebView) {
             guard markdown != lastMarkdown else { return }
             lastMarkdown = markdown
             pending?.cancel()
-            let item = DispatchWorkItem {
-                let body = MarkdownHTML.render(markdown)
-                webView.loadHTMLString(Self.page(body: body), baseURL: nil)
+            generation += 1
+            let token = generation
+            let item = DispatchWorkItem { [weak self, weak webView] in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let page = Self.page(body: MarkdownHTML.renderHighlighted(markdown))
+                    DispatchQueue.main.async {
+                        guard let self, let webView, token == self.generation else { return }
+                        webView.loadHTMLString(page, baseURL: nil)
+                    }
+                }
             }
             pending = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
@@ -123,6 +139,11 @@ struct PreviewWebView: NSViewRepresentable {
                 window.scrollTo(0, Math.max(0, y - window.innerHeight * 0.3));
               };
               build();
+              // Rebuild anchors when any block changes height. hljs is synchronous so this is
+              // a no-op today; it pre-empts scroll drift once async KaTeX/Mermaid land (M1.4.d).
+              if (window.ResizeObserver) {
+                new ResizeObserver(function () { window.__colophonAnchors = null; }).observe(document.body);
+              }
             })();
             </script>
             """
@@ -151,6 +172,38 @@ struct PreviewWebView: NSViewRepresentable {
             img { max-width: 100%; }
             hr { border: none; border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
             ul.contains-task-list { list-style: none; padding-left: 1em; }
+
+            /* highlight.js tokens — GitHub light (container bg already neutralized above).
+               The dark override below uses the SAME selector groups so no token is left
+               unstyled in dark mode. */
+            .hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-variable.language_ { color: #d73a49; }
+            .hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_ { color: #6f42c1; }
+            .hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: #005cc5; }
+            .hljs-regexp, .hljs-string, .hljs-meta .hljs-string { color: #032f62; }
+            .hljs-built_in, .hljs-symbol { color: #e36209; }
+            .hljs-comment, .hljs-code, .hljs-formula { color: #6a737d; }
+            .hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo { color: #22863a; }
+            .hljs-subst { color: #24292e; }
+            .hljs-section { color: #005cc5; font-weight: bold; }
+            .hljs-bullet { color: #735c0f; }
+            .hljs-emphasis { font-style: italic; }
+            .hljs-strong { font-weight: bold; }
+            .hljs-addition { color: #22863a; background: #f0fff4; }
+            .hljs-deletion { color: #b31d28; background: #ffeef0; }
+            @media (prefers-color-scheme: dark) {
+              .hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-variable.language_ { color: #ff7b72; }
+              .hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_ { color: #d2a8ff; }
+              .hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: #79c0ff; }
+              .hljs-regexp, .hljs-string, .hljs-meta .hljs-string { color: #a5d6ff; }
+              .hljs-built_in, .hljs-symbol { color: #ffa657; }
+              .hljs-comment, .hljs-code, .hljs-formula { color: #8b949e; }
+              .hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo { color: #7ee787; }
+              .hljs-subst { color: #c9d1d9; }
+              .hljs-section { color: #1f6feb; font-weight: bold; }
+              .hljs-bullet { color: #f2cc60; }
+              .hljs-addition { color: #aff5b4; background: #033a16; }
+              .hljs-deletion { color: #ffdcd7; background: #67060c; }
+            }
             """
     }
 }

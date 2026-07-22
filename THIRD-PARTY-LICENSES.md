@@ -19,14 +19,16 @@ standard, and are not duplicated here.
 - **Use:** preview-only syntax highlighting for fenced code blocks. Run **server-side**
   inside an in-process JavaScriptCore context (decision **D-M1-14**); highlight.js
   never executes in the WKWebView, and Colophon makes zero outbound requests to fetch it.
-- **Version:** 11.11.1  <!-- confirm against the exact 11.x you download -->
+- **Version:** 11.11.1
 - **SPDX:** `BSD-3-Clause`
 - **Source:** https://github.com/highlightjs/highlight.js
 - **Vendored file:** `Colophon/Colophon/Preview/Resources/highlight.min.js`
-- **SHA-256:** `<fill after download: shasum -a 256 highlight.min.js>`
-- **Build / language set:** <fill: "common" release build, or custom build with
-  languages: swift, javascript, typescript, python, bash, json, xml, css,
-  markdown, c, cpp, rust, go, yaml> — download date: `<YYYY-MM-DD>`
+- **SHA-256:** `c4a399dd6f488bc97a3546e3476747b3e714c99c57b9473154c6fb8d259b9381`
+- **Build / language set:** "common" prebuilt bundle, downloaded from cdnjs
+  (`https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js`);
+  the common set includes every language Colophon highlights (swift, javascript,
+  typescript, python, bash, json, xml, css, markdown, c, cpp, rust, go, yaml).
+  Download date: 2026-07-22.
 
 ```
 BSD 3-Clause License

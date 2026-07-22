@@ -40,4 +40,12 @@ enum MarkdownHTML {
         defer { free(htmlC) }
         return String(cString: htmlC)
     }
+
+    /// cmark render + server-side syntax highlighting (decision D-M1-14). Synchronous and
+    /// potentially slow (JavaScriptCore) — call OFF the main thread. Only the inside of each
+    /// fenced `<code>` is rewritten, so the `<pre data-sourcepos>` scroll anchors are
+    /// preserved byte-for-byte.
+    static func renderHighlighted(_ source: String) -> String {
+        CodeHighlighter.shared.applyHighlighting(to: render(source))
+    }
 }
