@@ -32,22 +32,17 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } content: {
-            // Middle — the Markdown files in the folder
+            // Middle — the folder's Markdown / agent files as an expandable tree
             Group {
                 if model.folderURL == nil {
                     placeholder("Open a folder to begin", systemImage: "folder")
-                } else if model.files.isEmpty {
-                    placeholder("No .md files in this folder", systemImage: "doc.text")
+                } else if model.fileTree.isEmpty {
+                    placeholder("No Markdown files in this folder", systemImage: "doc.text")
                 } else {
-                    List(model.files, id: \.self, selection: $model.selectedFile) { url in
-                        let kind = AgentFileRecognizer.kind(for: url)
-                        Label {
-                            Text(verbatim: url.lastPathComponent)
-                        } icon: {
-                            Image(systemName: kind?.symbolName ?? "doc.text")
-                                .foregroundStyle(
-                                    kind == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
-                        }
+                    List(model.fileTree, children: \.children, selection: $model.selectedFile) {
+                        node in
+                        fileRow(node)
+                            .selectionDisabled(node.isDirectory)
                     }
                 }
             }
@@ -85,6 +80,25 @@ struct ContentView: View {
     /// in the view, not the model.
     private var errorAlertBinding: Binding<Bool> {
         Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })
+    }
+
+    @ViewBuilder
+    private func fileRow(_ node: FileNode) -> some View {
+        if node.isDirectory {
+            Label {
+                Text(verbatim: node.name)
+            } icon: {
+                Image(systemName: "folder").foregroundStyle(.secondary)
+            }
+        } else {
+            let kind = node.agentKind
+            Label {
+                Text(verbatim: node.name)
+            } icon: {
+                Image(systemName: kind?.symbolName ?? "doc.text")
+                    .foregroundStyle(kind == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+            }
+        }
     }
 
     private func placeholder(_ title: LocalizedStringKey, systemImage: String) -> some View {

@@ -27,7 +27,7 @@ import SwiftUI
 final class LibraryModel: ObservableObject {
     // Library
     @Published var folderURL: URL?
-    @Published var files: [URL] = []
+    @Published var fileTree: [FileNode] = []
     @Published var selectedFile: URL? {
         didSet {
             guard selectedFile != oldValue else { return }
@@ -98,24 +98,10 @@ final class LibraryModel: ObservableObject {
 
     func refreshFiles() {
         guard let folderURL else {
-            files = []
+            fileTree = []
             return
         }
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: folderURL,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles])) ?? []
-        files =
-            contents
-            .filter { url in
-                ["md", "markdown", "mdc"].contains(url.pathExtension.lowercased())
-                    || AgentFileRecognizer.kind(for: url) != nil
-            }
-            .sorted {
-                $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent)
-                    == .orderedAscending
-            }
+        fileTree = FileTreeBuilder.build(root: folderURL)
     }
 
     // MARK: - Document
