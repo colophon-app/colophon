@@ -5,16 +5,18 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var model: LibraryModel
+    @State private var isChoosingFolder = false
 
     var body: some View {
         NavigationSplitView {
             // Sidebar — the library
             List {
                 Button {
-                    model.openFolder()
+                    isChoosingFolder = true
                 } label: {
                     if let name = model.folderURL?.lastPathComponent {
                         // A folder name is content, not UI copy — never localize it.
@@ -78,6 +80,20 @@ struct ContentView: View {
                 placeholder("Select a file", systemImage: "doc.text")
             }
         }
+        .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                model.openFolder(url)
+            }
+        }
+        .alert(model.lastError ?? "", isPresented: errorAlertBinding) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    /// Bridges the model's `lastError` to an alert; clearing on dismiss keeps presentation
+    /// in the view, not the model.
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })
     }
 
     private func placeholder(_ title: LocalizedStringKey, systemImage: String) -> some View {

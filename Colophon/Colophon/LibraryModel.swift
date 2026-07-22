@@ -3,14 +3,17 @@
 //  LibraryModel.swift
 //  Colophon
 //
-//  M0 skeleton: a folder is the library. Open a folder, list its Markdown files,
-//  load one (strict UTF-8), edit, and save. No proprietary state.
+//  L2 model: a folder is the library. Open a folder, list its Markdown files, load one
+//  (strict UTF-8), edit, autosave. No proprietary state.
 //
-//  M1.1: autosave. Edits are flushed after a short idle, when the app loses focus or
-//  quits, and before switching to another file — every write is byte-exact and atomic
-//  (via MarkdownFileIO). `loadedText` is the on-disk truth; `text` diverging from it is
-//  the dirty signal. (The proper structural home for this is the L2 DocumentModel —
-//  architecture §2.2 — which also removes the whole-string SwiftUI binding; M1.1.)
+//  L2 isolation (architecture §1.2, §2.1): the model owns state and intents but does NOT
+//  present UI. The folder picker and error alerts live in L1 (the view); the model exposes
+//  `openFolder(_:)` for a chosen URL and publishes `lastError` for the view to surface.
+//  (AppKit is imported only for app-lifecycle notifications, not for any UI presentation.)
+//
+//  Autosave: edits are flushed after a short idle, on resign-active / terminate, and before
+//  switching files — every write byte-exact and atomic (MarkdownFileIO). `loadedText` is the
+//  on-disk truth; `text != loadedText` is the dirty signal.
 //
 
 import AppKit
@@ -22,6 +25,9 @@ final class LibraryModel: ObservableObject {
     @Published var folderURL: URL?
     @Published var files: [URL] = []
     @Published var text: String = ""
+    /// A user-facing error for the view to surface (cleared when dismissed). The model never
+    /// presents an alert itself.
+    @Published var lastError: String?
     @Published var selectedFile: URL? {
         didSet {
             guard selectedFile != oldValue else { return }
@@ -40,8 +46,7 @@ final class LibraryModel: ObservableObject {
     }
 
     private var accessedFolder: URL?
-    /// The file's on-disk content — what the editor last loaded or saved. `text != loadedText`
-    /// means there are unsaved edits.
+    /// The file's on-disk content — what the editor last loaded or saved.
     private var loadedText = ""
     private var isSwitching = false
     private var cancellables = Set<AnyCancellable>()
@@ -64,17 +69,9 @@ final class LibraryModel: ObservableObject {
 
     // MARK: - Folder
 
-    func openFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        panel.prompt = String(localized: "Open")
-        panel.message = String(localized: "Choose a folder of Markdown files.")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        // Session-scoped access to the chosen folder (and its descendants).
+    /// Open a folder the user chose in the view (L1 presents the picker; the model stays
+    /// UI-free). The URL is expected to be security-scoped.
+    func openFolder(_ url: URL) {
         accessedFolder?.stopAccessingSecurityScopedResource()
         _ = url.startAccessingSecurityScopedResource()
         accessedFolder = url
@@ -124,20 +121,16 @@ final class LibraryModel: ObservableObject {
         } catch MarkdownFileIO.IOError.notValidUTF8 {
             text = ""
             loadedText = ""
-            report(
-                String(
-                    localized:
-                        "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
-                )
+            lastError = String(
+                localized:
+                    "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
             )
         } catch {
             text = ""
             loadedText = ""
-            report(
-                String(
-                    localized:
-                        "Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)"
-                )
+            lastError = String(
+                localized:
+                    "Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)"
             )
         }
     }
@@ -148,11 +141,9 @@ final class LibraryModel: ObservableObject {
             try MarkdownFileIO.write(text, to: url)
             loadedText = text
         } catch {
-            report(
-                String(
-                    localized:
-                        "Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)"
-                )
+            lastError = String(
+                localized:
+                    "Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)"
             )
         }
     }
@@ -168,15 +159,5 @@ final class LibraryModel: ObservableObject {
         } catch {
             // Intentionally silent — see doc comment.
         }
-    }
-
-    // MARK: - Helpers
-
-    private func report(_ message: String) {
-        NSSound.beep()
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.addButton(withTitle: String(localized: "OK"))
-        alert.runModal()
     }
 }
