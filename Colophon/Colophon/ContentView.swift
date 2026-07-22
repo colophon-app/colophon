@@ -38,16 +38,34 @@ struct ContentView: View {
                     placeholder("No .md files in this folder", systemImage: "doc.text")
                 } else {
                     List(model.files, id: \.self, selection: $model.selectedFile) { url in
-                        Text(verbatim: url.lastPathComponent)
+                        let kind = AgentFileRecognizer.kind(for: url)
+                        Label {
+                            Text(verbatim: url.lastPathComponent)
+                        } icon: {
+                            Image(systemName: kind?.symbolName ?? "doc.text")
+                                .foregroundStyle(
+                                    kind == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                        }
                     }
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 280)
         } detail: {
             // Editor
-            if model.selectedFile != nil {
+            if let selectedFile = model.selectedFile {
                 MarkdownTextView(text: $model.text)
                     .toolbar {
+                        if let kind = AgentFileRecognizer.kind(for: selectedFile) {
+                            ToolbarItem(placement: .navigation) {
+                                Label {
+                                    Text(verbatim: kind.displayName)
+                                } icon: {
+                                    Image(systemName: kind.symbolName)
+                                }
+                                .labelStyle(.titleAndIcon)
+                                .foregroundStyle(.tint)
+                            }
+                        }
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 model.save()
