@@ -93,6 +93,14 @@
 - **决定**：编辑器默认字体**打包 IBM Plex Mono**（OFL 1.1，允许随 Apache-2.0 app 分发，附 OFL.txt + copyright，改动则改名），可另提供 **iA Writer Duospace**（OFL）为「Duo」选项；**New York 绝不打包**（系统字体）——预览 CSS 走 `ui-serif`、AppKit 走 `NSFontDescriptor.withDesign(.serif)`。启动注册 5 个 `NSAutomatic*SubstitutionEnabled=false` 默认（byte-exact）。
 - **状态**：已定（打包前复核 iaolo/iA-Fonts 与 IBM/plex 的版本/许可）。
 
+## D-M1-13 · network.client entitlement：M1 起申请（WKWebView 沙箱需要），CSP 强制零出站（修订红线 R2.3）
+
+- **背景**：M1.4 分屏预览用 WKWebView。**实测(2026-07-22)**：沙箱下 WKWebView 的 WebContent/GPU/Network 辅助进程**起不来**（控制台：`web process failed to launch` + `Sandbox is preventing … reading networkd settings` + Network process crash）→ 预览全白。macOS 已知要求：**沙箱 app 用 WKWebView 必须有 `com.apple.security.network.client`**,哪怕内容全本地。而 security §R2.3 原本禁它——**动手做才撞出的规划疏漏**。
+- **决定**：**申请 `com.apple.security.network.client`**（Signing & Capabilities → App Sandbox → Outgoing Connections,存进 `project.pbxproj` 构建设置）+ **修订红线 R2.3**。隐私叙事**不变且可强制**：预览页 CSP `default-src 'none'; connect-src 'none'`（禁一切出站 fetch）+ 仅本地内容 + `allowsContentJavaScript=false` + 零遥测 → **app 持有权限但发零个真实网络请求**。**约束**：app 自身代码不得发 `URLSession`/socket 出站(联网仅限 WKWebView 辅助进程、被 CSP 锁死)。
+- **理由**：预览 + 未来 Mermaid/KaTeX/PDF 导出全建在 WKWebView 上,离不开它。先例:MarkEdit(整个编辑器即 WKWebView)沙箱 + network.client + 零遥测。
+- **知会**：Sparkle 的 D-M0-1(为避 network.client 而用 Downloader XPC)理由已 moot,但 XPC 方案无害,M1.9 接 Sparkle 时可重评是否简化。
+- **状态**：已定;红线 [R2.3](../standards/security-and-privacy.md) 已改。
+
 ---
 
 ## M1 待落锤清单（spike 输出，回填本文 + architecture §8/§9）

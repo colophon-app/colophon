@@ -56,7 +56,7 @@ Abricotine 是 Electron + nodeIntegration，我们是 WKWebView——技术栈�
 - **R2.3 entitlements 最小化。** 只申请当前功能真正需要的能力：
   - 文库读写：`com.apple.security.files.user-selected.read-write` + bookmarks。
   - **禁止**申请 `com.apple.security.files.all` 或任何「全盘访问」类能力。
-  - **网络出站（`com.apple.security.network.client`）在 MVP 不申请**——MVP 无任何联网需求（无遥测、无账号、无 AI，分发走 Homebrew/GitHub 而非应用内下载）。等 AI/MCP 落地（V1/V2）再按需最小追加，并同步更新本规范。
+  - **网络出站（`com.apple.security.network.client`）：M1 起申请,但仅因 WKWebView 需要,且强制零实际出站**（修订自「MVP 不申请」——[M1/decisions.md](../M1/decisions.md) **D-M1-13**,实测逼出）。原因:沙箱 app 用 WKWebView 时,其 WebContent/Network 辅助进程**光是启动**就需要此 entitlement(否则崩溃、预览全白;控制台实锤 networkd sandbox denial)。而**预览子系统 + 未来 Mermaid/KaTeX/PDF 导出全建在 WKWebView 上**。**隐私行为不变、且可强制验证**:预览页 CSP 设 `connect-src 'none'`(禁一切出站 fetch)+ 只加载本地内容 + `allowsContentJavaScript=false` + 零遥测(`PrivacyInfo.xcprivacy` NSPrivacyTracking=false)→ **一个字节不出用户机器**。这正是 MarkEdit(整个编辑器即 WKWebView)在 MAS 沙箱下的做法。**约束**:app 自身代码**不得**发起任何 `URLSession`/socket 出站请求(联网仅限 WKWebView 的辅助进程、且被 CSP 锁死);任何未来真实联网(AI/MCP)按 R3.3 走一次显式用户同意。**知会**:此权限一旦在,Sparkle 的 D-M0-1(为避开 network.client 而用 Downloader XPC)理由已moot,但 XPC 方案无害、M1.9 接 Sparkle 时可重评。
 - **R2.4 沙箱能力边界写进设计假设。** 任何「作用于其它 app 的系统级能力」（如 Elephas 式全局改写）在 MAS 沙箱下不可行——我们**不做**这类功能（PRD 范围克制）。系统 AI 能力经 Writing Tools 在**本 app 内**经 TextKit 2 使用，沙箱内合规（docs/08 iA/Ulysses 路线）。
 - **R2.5 双渠道功能差异必须显式决策，不得撞见。** 官网直装（GitHub Releases + Homebrew）与未来 MAS 版**默认保持功能对等**：两者都沙箱化、都不依赖任何越沙箱能力，从而一套代码/一套构建服务双渠道。**一旦**出现某功能越不过 MAS 沙箱（当前已知的最可能点：V2 的 **MCP stdio launcher helper 二进制**——需随 app 分发并被 Agent 以子进程 stdio 启动，docs/15、docs/19 §四；沙箱化 MAS app 能否分发/拉起该 helper 存疑），**必须**在做该功能之前把「MAS 是否收录 / 双渠道是否分叉」当作一次正式决策记录进 `decisions.md`，而不是事后发现（Elephas 教训，docs/08）。
 
