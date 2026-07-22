@@ -32,6 +32,12 @@ final class PreviewSync {
         scrollPreview()
     }
 
+    /// A new file loaded — the preview should start at the top, not chase the previous file's
+    /// caret line. (The subsequent reload's `previewDidReload` then scrolls to line 1.)
+    func resetToTop() {
+        line = 1
+    }
+
     private func scrollPreview() {
         webView?.evaluateJavaScript(
             "window.__colophonScrollToLine && window.__colophonScrollToLine(\(line))")

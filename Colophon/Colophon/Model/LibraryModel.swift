@@ -32,8 +32,8 @@ final class LibraryModel: ObservableObject {
         didSet {
             guard selectedFile != oldValue else { return }
             // Flush unsaved edits of the file we're leaving before switching away.
-            if let doc = document, text != doc.onDiskText {
-                try? MarkdownFileIO.write(text, to: doc.url)
+            if let doc = document, buffer.string != doc.onDiskText {
+                try? MarkdownFileIO.write(buffer.string, to: doc.url)
             }
             // The List sets this during a SwiftUI view update; loading here would publish
             // `text` mid-update ("Publishing changes from within view updates"). Defer to
@@ -46,8 +46,9 @@ final class LibraryModel: ObservableObject {
     }
 
     // Open document
-    /// The live editable buffer the editor binds to.
-    @Published var text: String = ""
+    /// The live editable text — L2's single in-memory source of truth (architecture §2.2). The
+    /// editor shares this buffer's NSTextStorage, so there is no per-keystroke @Binding round-trip.
+    let buffer = TextBuffer()
     /// The currently open file's context (URL + on-disk snapshot). Nil when nothing is open.
     @Published private(set) var document: Document?
     /// A user-facing error for the view to surface (cleared when dismissed). The model never
@@ -57,7 +58,7 @@ final class LibraryModel: ObservableObject {
     /// True when the buffer differs from what's on disk.
     var isDirty: Bool {
         guard let document else { return false }
-        return text != document.onDiskText
+        return buffer.string != document.onDiskText
     }
 
     private var accessedFolder: URL?
@@ -65,11 +66,12 @@ final class LibraryModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init() {
-        // Autosave triggers: idle after edits, app resigns active, app terminates.
-        $text
-            .dropFirst()
+        // Autosave triggers: idle after edits, app resigns active, app terminates. The buffer
+        // emits `changed` on real edits only (never on load), so no dropFirst() is needed —
+        // dropping the first signal would swallow a single-edit session's idle autosave.
+        buffer.changed
             .debounce(for: .seconds(1.5), scheduler: RunLoop.main)
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.autosaveIfNeeded() } }
+            .sink { [weak self] in MainActor.assumeIsolated { self?.autosaveIfNeeded() } }
             .store(in: &cancellables)
         for name in [
             NSApplication.willResignActiveNotification, NSApplication.willTerminateNotification,
@@ -91,7 +93,7 @@ final class LibraryModel: ObservableObject {
 
         folderURL = url
         selectedFile = nil
-        text = ""
+        buffer.load("")
         document = nil
         refreshFiles()
     }
@@ -109,23 +111,23 @@ final class LibraryModel: ObservableObject {
     private func loadSelected() {
         defer { isSwitching = false }
         guard let url = selectedFile else {
-            text = ""
+            buffer.load("")
             document = nil
             return
         }
         do {
             let contents = try MarkdownFileIO.read(url)
-            text = contents
+            buffer.load(contents)
             document = Document(url: url, onDiskText: contents)
         } catch MarkdownFileIO.IOError.notValidUTF8 {
-            text = ""
+            buffer.load("")
             document = nil
             lastError = String(
                 localized:
                     "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
             )
         } catch {
-            text = ""
+            buffer.load("")
             document = nil
             lastError = String(
                 localized:
@@ -137,8 +139,8 @@ final class LibraryModel: ObservableObject {
     func save() {
         guard let doc = document else { return }
         do {
-            try MarkdownFileIO.write(text, to: doc.url)
-            document = Document(url: doc.url, onDiskText: text)
+            try MarkdownFileIO.write(buffer.string, to: doc.url)
+            document = Document(url: doc.url, onDiskText: buffer.string)
         } catch {
             lastError = String(
                 localized: "Couldn't save \"\(doc.displayName)\": \(error.localizedDescription)"
@@ -150,10 +152,10 @@ final class LibraryModel: ObservableObject {
     /// explicit `save()` surfaces the error. Skipped mid-switch so a stale `text` is never
     /// written to the newly selected file.
     private func autosaveIfNeeded() {
-        guard !isSwitching, let doc = document, text != doc.onDiskText else { return }
+        guard !isSwitching, let doc = document, buffer.string != doc.onDiskText else { return }
         do {
-            try MarkdownFileIO.write(text, to: doc.url)
-            document = Document(url: doc.url, onDiskText: text)
+            try MarkdownFileIO.write(buffer.string, to: doc.url)
+            document = Document(url: doc.url, onDiskText: buffer.string)
         } catch {
             // Intentionally silent — see doc comment.
         }

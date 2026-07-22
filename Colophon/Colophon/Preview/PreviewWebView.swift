@@ -17,14 +17,15 @@
 //  L4 contract (architecture §1.2, §4): the preview is read-only downstream of the model.
 //
 
+import Combine
 import SwiftUI
 import WebKit
 
 struct PreviewWebView: NSViewRepresentable {
-    let markdown: String
+    let buffer: TextBuffer
     let sync: PreviewSync
 
-    func makeCoordinator() -> Coordinator { Coordinator(sync: sync) }
+    func makeCoordinator() -> Coordinator { Coordinator(sync: sync, buffer: buffer) }
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -39,21 +40,49 @@ struct PreviewWebView: NSViewRepresentable {
         #endif
         sync.webView = webView
         CodeHighlighter.shared.warm()  // pre-init JSCore so the first render isn't cold
-        context.coordinator.render(markdown, in: webView)
+        context.coordinator.start(in: webView)
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.render(markdown, in: webView)
-    }
+    // Content changes arrive through the buffer subscription, not SwiftUI — nothing to push.
+    func updateNSView(_ webView: WKWebView, context: Context) {}
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let sync: PreviewSync
+        private let buffer: TextBuffer
+        private weak var webView: WKWebView?
         private var lastMarkdown: String?
         private var pending: DispatchWorkItem?
         private var generation = 0  // main-thread only; drops stale async highlight results
+        private var cancellables = Set<AnyCancellable>()
 
-        init(sync: PreviewSync) { self.sync = sync }
+        init(sync: PreviewSync, buffer: TextBuffer) {
+            self.sync = sync
+            self.buffer = buffer
+        }
+
+        /// Subscribe to the shared buffer and render its current text. A real edit (`changed`)
+        /// and a file switch (`contentReloaded`) both trigger a debounced re-render that reads
+        /// buffer.string once — no whole document is pushed through SwiftUI per keystroke.
+        func start(in webView: WKWebView) {
+            self.webView = webView
+            // A file switch: start the preview at the top (not the previous file's caret line).
+            buffer.contentReloaded
+                .sink { [weak self] in
+                    guard let self, let webView = self.webView else { return }
+                    self.sync.resetToTop()
+                    self.render(self.buffer.string, in: webView)
+                }
+                .store(in: &cancellables)
+            // A normal edit: re-render and let previewDidReload follow the caret.
+            buffer.changed
+                .sink { [weak self] in
+                    guard let self, let webView = self.webView else { return }
+                    self.render(self.buffer.string, in: webView)
+                }
+                .store(in: &cancellables)
+            render(buffer.string, in: webView)
+        }
 
         /// Debounced re-render (the editor pushes `markdown` on every keystroke). The cmark
         /// parse + JSCore highlight pass runs OFF the main thread; only `loadHTMLString` hops

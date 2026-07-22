@@ -30,20 +30,25 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
-    @Binding var text: String
+    let buffer: TextBuffer
     var sync: PreviewSync?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, sync: sync)
+        Coordinator(buffer: buffer, sync: sync)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
         // --- TextKit 2 stack, built by hand (never use scrollableTextView()) ---
         let contentStorage = NSTextContentStorage()
         contentStorage.delegate = context.coordinator  // lazy per-paragraph styling
+        // L2 owns the text (architecture §2.2): inject the model's storage so typing mutates it
+        // in place — no per-keystroke whole-string copy through a @Binding. Reached only via
+        // contentStorage; never touches .layoutManager, so no TextKit-1 downgrade.
+        contentStorage.textStorage = buffer.storage
         let textLayoutManager = NSTextLayoutManager()
         contentStorage.addTextLayoutManager(textLayoutManager)
 
@@ -54,7 +59,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         let textView = NSTextView(frame: .zero, textContainer: container)
         textView.delegate = context.coordinator
-        textView.string = text
+        buffer.editorView = textView  // lets the buffer consult live IME composition state
 
         textView.isRichText = false
         textView.allowsUndo = true
@@ -91,19 +96,15 @@ struct MarkdownTextView: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        // Only write back on a real change (avoids an update loop and caret jumps).
-        if textView.string != text {
-            textView.string = text
-            context.coordinator.reparse(trigger: .load)
-        }
-    }
+    // Nothing to push: the editor and the model share one NSTextStorage (buffer.storage), so
+    // there is no @Binding round-trip. New file content arrives via buffer.load() →
+    // contentReloaded, which the coordinator restyles.
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {}
 
     final class Coordinator: NSObject, NSTextViewDelegate, NSTextContentStorageDelegate {
         enum Trigger { case load, edit }
 
-        private let text: Binding<String>
+        private let buffer: TextBuffer
         private let sync: PreviewSync?
         weak var textView: NSTextView?
         weak var contentStorage: NSTextContentStorage?
@@ -122,27 +123,72 @@ struct MarkdownTextView: NSViewRepresentable {
         private var generation = 0
         private var pending: DispatchWorkItem?
         private var isRestyling = false  // true while we post the re-vend signal (below)
+        private var wasComposing = false  // tracks IME marked-text state across edits
+        private var cancellables = Set<AnyCancellable>()
 
-        init(text: Binding<String>, sync: PreviewSync?) {
-            self.text = text
+        init(buffer: TextBuffer, sync: PreviewSync?) {
+            self.buffer = buffer
             self.sync = sync
+            super.init()
+            // A file switch loads new content into the shared storage in place. Start at the
+            // top: put the caret at offset 0 (so the preview's caret-follow lands at line 1,
+            // not the previous file's caret line) and scroll to the beginning, then restyle.
+            buffer.contentReloaded
+                .sink { [weak self] in
+                    guard let self else { return }
+                    if let textView = self.textView {
+                        textView.setSelectedRange(NSRange(location: 0, length: 0))
+                        textView.scrollToBeginningOfDocument(nil)
+                    }
+                    self.reparse(trigger: .load)
+                }
+                .store(in: &cancellables)
         }
 
         // MARK: - NSTextViewDelegate
 
+        /// The editor's undo registers into the buffer's UndoManager — the exact stack load()
+        /// clears on a file switch, so Cmd-Z can never replay a prior file's edit into the new
+        /// one (which would corrupt bytes).
+        func undoManager(for view: NSTextView) -> UndoManager? { buffer.undoManager }
+
         func textDidChange(_ notification: Notification) {
             guard !isRestyling, let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
+            // The buffer suppresses its `changed` signal while IME marked text is composing (so
+            // the preview doesn't flicker mid-compose); when composition ends, emit once so the
+            // committed text still reaches the preview + autosave.
+            let composing = textView.hasMarkedText()
+            if wasComposing && !composing { buffer.emitChanged() }
+            wasComposing = composing
             reparse(trigger: .edit)
         }
 
-        /// Report the caret's 1-based source line so the preview can follow it (M1.4.b).
+        /// Report the caret's 1-based source line so the preview can follow it (M1.4.b). Reads
+        /// the storage's backing string directly (no whole-document String/NSString copy) and
+        /// counts newlines with a native scan. Skipped entirely when the preview is closed
+        /// (`sync.webView` is nil), so caret moves in a big doc cost nothing without a preview.
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let sync, let textView = notification.object as? NSTextView else { return }
-            let string = textView.string as NSString
-            let offset = min(textView.selectedRange().location, string.length)
-            let line = string.substring(to: offset).reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-            sync.caretMoved(toLine: line)
+            guard let sync, sync.webView != nil,
+                let textView = notification.object as? NSTextView,
+                let backing = textView.textStorage?.mutableString
+            else { return }
+            let offset = min(textView.selectedRange().location, backing.length)
+            sync.caretMoved(toLine: Self.lineNumber(upTo: offset, in: backing))
+        }
+
+        /// 1-based count of `\n` before `offset`, via native substring search. Only "\n" is
+        /// matched, so a CRLF line ending counts once.
+        private static func lineNumber(upTo offset: Int, in string: NSString) -> Int {
+            var line = 1
+            var index = 0
+            while index < offset {
+                let found = string.range(
+                    of: "\n", options: [], range: NSRange(location: index, length: offset - index))
+                if found.location == NSNotFound { break }
+                line += 1
+                index = found.location + found.length
+            }
+            return line
         }
 
         // MARK: - NSTextContentStorageDelegate (lazy per-paragraph styling)
@@ -244,12 +290,17 @@ struct MarkdownTextView: NSViewRepresentable {
             // changed and moves the insertion point. Save the selection and put it back so
             // the caret does not jump.
             let savedSelection = textView.selectedRanges
+            // Both flags stay set across the whole begin/edited/end block: the buffer is the
+            // storage's NSTextStorageDelegate and its didProcessEditing fires during endEditing,
+            // and this zero-length re-vend must NOT be published as a real edit.
             isRestyling = true
+            buffer.isApplyingStyleRevend = true
             storage.beginEditing()
             storage.edited(.editedCharacters, range: clamped, changeInLength: 0)
             storage.endEditing()
-            textView.selectedRanges = savedSelection
+            buffer.isApplyingStyleRevend = false
             isRestyling = false
+            textView.selectedRanges = savedSelection
         }
 
         private func visibleCharacterRange() -> NSRange? {

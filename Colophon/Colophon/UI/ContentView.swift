@@ -53,10 +53,10 @@ struct ContentView: View {
             // Editor + optional split preview
             if model.selectedFile != nil {
                 HSplitView {
-                    MarkdownTextView(text: $model.text, sync: previewSync)
+                    MarkdownTextView(buffer: model.buffer, sync: previewSync)
                         .frame(minWidth: 320)
                     if showPreview {
-                        PreviewWebView(markdown: model.text, sync: previewSync)
+                        PreviewWebView(buffer: model.buffer, sync: previewSync)
                             .frame(minWidth: 320)
                     }
                 }
