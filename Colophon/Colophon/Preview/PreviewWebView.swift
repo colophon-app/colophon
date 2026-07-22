@@ -3,10 +3,12 @@
 //  PreviewWebView.swift
 //  Colophon
 //
-//  L4: the split-preview pane. A WKWebView renders the cmark HTML (MarkdownHTML) inside a
-//  minimal document with a strict CSP. M1.4.a rendering + M1.4.b editor→preview follow: a
-//  small bundled script scrolls to a `data-sourcepos` anchor when PreviewSync reports the
-//  caret line. No KaTeX/Mermaid/highlight yet (M1.4.c).
+//  L4: the split-preview pane. A WKWebView renders the cmark HTML (MarkdownHTML, with
+//  server-side code highlighting per D-M1-14) inside a minimal document with a strict CSP.
+//  M1.4.b editor→preview follow: a small inline script scrolls to a `data-sourcepos` anchor
+//  when PreviewSync reports the caret line. Only the first render loads the page; later
+//  renders swap the content div's innerHTML in place (no reload → no flash). KaTeX/Mermaid +
+//  the scheme-handler/strict-CSP-header migration are still M1.4.d.
 //
 //  Sandbox + privacy (decision D-M1-13): a sandboxed app using WKWebView needs the
 //  `com.apple.security.network.client` entitlement, but the preview makes ZERO outbound
@@ -54,6 +56,7 @@ struct PreviewWebView: NSViewRepresentable {
         private var lastMarkdown: String?
         private var pending: DispatchWorkItem?
         private var generation = 0  // main-thread only; drops stale async highlight results
+        private var didLoad = false  // once the shell page is loaded, update content in place
         private var cancellables = Set<AnyCancellable>()
 
         init(sync: PreviewSync, buffer: TextBuffer) {
@@ -84,10 +87,11 @@ struct PreviewWebView: NSViewRepresentable {
             render(buffer.string, in: webView)
         }
 
-        /// Debounced re-render (the editor pushes `markdown` on every keystroke). The cmark
-        /// parse + JSCore highlight pass runs OFF the main thread; only `loadHTMLString` hops
-        /// back to main. A generation token drops a slow result that a newer keystroke has
-        /// already superseded (highlighting is async, so results can land out of date).
+        /// Debounced re-render (the buffer signals on every keystroke). The cmark parse + JSCore
+        /// highlight pass runs OFF the main thread. The FIRST render loads the shell page; every
+        /// render after that swaps only the content `<div>`'s innerHTML via a JS call, so the
+        /// page is never reloaded and there is no white flash. A generation token drops a slow
+        /// result a newer keystroke has already superseded.
         func render(_ markdown: String, in webView: WKWebView) {
             guard markdown != lastMarkdown else { return }
             lastMarkdown = markdown
@@ -96,10 +100,19 @@ struct PreviewWebView: NSViewRepresentable {
             let token = generation
             let item = DispatchWorkItem { [weak self, weak webView] in
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let page = Self.page(body: MarkdownHTML.renderHighlighted(markdown))
+                    let body = MarkdownHTML.renderHighlighted(markdown)
                     DispatchQueue.main.async {
                         guard let self, let webView, token == self.generation else { return }
-                        webView.loadHTMLString(page, baseURL: nil)
+                        if self.didLoad {
+                            // Update in place — base64 keeps the HTML safe inside the JS string
+                            // literal (no quote/newline/`</script>` escaping needed).
+                            let base64 = Data(body.utf8).base64EncodedString()
+                            webView.evaluateJavaScript(
+                                "window.__colophonSetContent(\"\(base64)\")"
+                            ) { [weak self] _, _ in self?.sync.previewDidReload() }
+                        } else {
+                            webView.loadHTMLString(Self.page(body: body), baseURL: nil)
+                        }
                     }
                 }
             }
@@ -107,8 +120,10 @@ struct PreviewWebView: NSViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
         }
 
-        // After a reload, restore the scroll position to the editor's caret line.
+        // The shell page finished loading — from now on update content in place. Restore the
+        // scroll position to the editor's caret line.
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            didLoad = true
             sync.previewDidReload()
         }
 
@@ -136,7 +151,7 @@ struct PreviewWebView: NSViewRepresentable {
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none';">
             <style>\(css)</style>
             </head>
-            <body>\(body)\(syncScript)</body>
+            <body><div id="colophon-content">\(body)</div>\(syncScript)</body>
             </html>
             """
         }
@@ -166,6 +181,14 @@ struct PreviewWebView: NSViewRepresentable {
                   y = a[idx].top + frac * (a[idx + 1].top - a[idx].top);
                 }
                 window.scrollTo(0, Math.max(0, y - window.innerHeight * 0.3));
+              };
+              // Swap the rendered body in place (base64 → UTF-8) instead of reloading the page,
+              // so re-rendering never flashes. Anchors are invalidated so the next scroll rebuilds.
+              window.__colophonSetContent = function (b64) {
+                var html = new TextDecoder().decode(
+                  Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); }));
+                var el = document.getElementById('colophon-content');
+                if (el) { el.innerHTML = html; window.__colophonAnchors = null; }
               };
               build();
               // Rebuild anchors when any block changes height. hljs is synchronous so this is
