@@ -4,7 +4,13 @@
 //  Colophon
 //
 //  M0 skeleton: a folder is the library. Open a folder, list its Markdown files,
-//  load one (strict UTF-8), edit, and save atomically. No proprietary state.
+//  load one (strict UTF-8), edit, and save. No proprietary state.
+//
+//  M1.1: autosave. Edits are flushed after a short idle, when the app loses focus or
+//  quits, and before switching to another file — every write is byte-exact and atomic
+//  (via MarkdownFileIO). `loadedText` is the on-disk truth; `text` diverging from it is
+//  the dirty signal. (The proper structural home for this is the L2 DocumentModel —
+//  architecture §2.2 — which also removes the whole-string SwiftUI binding; M1.1.)
 //
 
 import AppKit
@@ -19,15 +25,42 @@ final class LibraryModel: ObservableObject {
     @Published var selectedFile: URL? {
         didSet {
             guard selectedFile != oldValue else { return }
+            // Flush unsaved edits of the file we're leaving before switching away.
+            if let previous = oldValue, text != loadedText {
+                try? MarkdownFileIO.write(text, to: previous)
+            }
             // The List sets this during a SwiftUI view update; loading here would publish
             // `text` mid-update ("Publishing changes from within view updates"). Defer to
-            // the next runloop turn so the publish happens outside the update. (The proper
-            // structural fix is the L2 DocumentModel — architecture §2.2, M1.1.)
+            // the next runloop turn so the publish happens outside the update. `isSwitching`
+            // suppresses autosave in the gap so a stale `text` can't be written to the new
+            // file's URL.
+            isSwitching = true
             DispatchQueue.main.async { [weak self] in self?.loadSelected() }
         }
     }
 
     private var accessedFolder: URL?
+    /// The file's on-disk content — what the editor last loaded or saved. `text != loadedText`
+    /// means there are unsaved edits.
+    private var loadedText = ""
+    private var isSwitching = false
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        // Autosave triggers: idle after edits, app resigns active, app terminates.
+        $text
+            .dropFirst()
+            .debounce(for: .seconds(1.5), scheduler: RunLoop.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.autosaveIfNeeded() } }
+            .store(in: &cancellables)
+        for name in [
+            NSApplication.willResignActiveNotification, NSApplication.willTerminateNotification,
+        ] {
+            NotificationCenter.default.publisher(for: name)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.autosaveIfNeeded() } }
+                .store(in: &cancellables)
+        }
+    }
 
     // MARK: - Folder
 
@@ -49,6 +82,7 @@ final class LibraryModel: ObservableObject {
         folderURL = url
         selectedFile = nil
         text = ""
+        loadedText = ""
         refreshFiles()
     }
 
@@ -64,7 +98,10 @@ final class LibraryModel: ObservableObject {
                 options: [.skipsHiddenFiles])) ?? []
         files =
             contents
-            .filter { ["md", "markdown"].contains($0.pathExtension.lowercased()) }
+            .filter { url in
+                ["md", "markdown", "mdc"].contains(url.pathExtension.lowercased())
+                    || AgentFileRecognizer.kind(for: url) != nil
+            }
             .sorted {
                 $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent)
                     == .orderedAscending
@@ -74,14 +111,19 @@ final class LibraryModel: ObservableObject {
     // MARK: - File
 
     private func loadSelected() {
+        defer { isSwitching = false }
         guard let url = selectedFile else {
             text = ""
+            loadedText = ""
             return
         }
         do {
-            text = try MarkdownFileIO.read(url)
+            let contents = try MarkdownFileIO.read(url)
+            text = contents
+            loadedText = contents
         } catch MarkdownFileIO.IOError.notValidUTF8 {
             text = ""
+            loadedText = ""
             report(
                 String(
                     localized:
@@ -90,6 +132,7 @@ final class LibraryModel: ObservableObject {
             )
         } catch {
             text = ""
+            loadedText = ""
             report(
                 String(
                     localized:
@@ -103,6 +146,7 @@ final class LibraryModel: ObservableObject {
         guard let url = selectedFile else { return }
         do {
             try MarkdownFileIO.write(text, to: url)
+            loadedText = text
         } catch {
             report(
                 String(
@@ -110,6 +154,19 @@ final class LibraryModel: ObservableObject {
                         "Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)"
                 )
             )
+        }
+    }
+
+    /// Save on idle / focus loss / quit. Silent on failure (retries on the next edit);
+    /// explicit `save()` surfaces the error. Skipped mid-switch so a stale `text` is never
+    /// written to the newly selected file.
+    private func autosaveIfNeeded() {
+        guard !isSwitching, let url = selectedFile, text != loadedText else { return }
+        do {
+            try MarkdownFileIO.write(text, to: url)
+            loadedText = text
+        } catch {
+            // Intentionally silent — see doc comment.
         }
     }
 
