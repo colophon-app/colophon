@@ -54,20 +54,9 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 280)
         } detail: {
             // Editor
-            if let selectedFile = model.selectedFile {
+            if model.selectedFile != nil {
                 MarkdownTextView(text: $model.text)
                     .toolbar {
-                        if let kind = AgentFileRecognizer.kind(for: selectedFile) {
-                            ToolbarItem(placement: .navigation) {
-                                Label {
-                                    Text(verbatim: kind.displayName)
-                                } icon: {
-                                    Image(systemName: kind.symbolName)
-                                }
-                                .labelStyle(.titleAndIcon)
-                                .foregroundStyle(.tint)
-                            }
-                        }
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 model.save()
@@ -88,6 +77,8 @@ struct ContentView: View {
         .alert(model.lastError ?? "", isPresented: errorAlertBinding) {
             Button("OK", role: .cancel) {}
         }
+        // Window title tracks the open document (verbatim — a filename is content, not copy).
+        .navigationTitle(Text(verbatim: model.document?.displayName ?? "Colophon"))
     }
 
     /// Bridges the model's `lastError` to an alert; clearing on dismiss keeps presentation

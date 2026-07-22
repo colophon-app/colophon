@@ -30,7 +30,8 @@ enum MarkdownSyntaxStyler {
     /// base attributes first, then these runs in array order (later runs layer on top).
     static func styleRuns(for source: String, baseFontSize: CGFloat = 14) -> [StyleRun] {
         let mapper = SourceRangeMapper(source: source)
-        let document = Document(parsing: source)
+        // Qualify swift-markdown's Document — Colophon has its own `Document` (L2) type.
+        let document = Markdown.Document(parsing: source)
         var walker = StyleWalker(source: source, mapper: mapper, baseFontSize: baseFontSize)
         walker.visit(document)
         return walker.runs

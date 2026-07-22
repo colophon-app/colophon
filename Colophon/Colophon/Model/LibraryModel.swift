@@ -11,9 +11,12 @@
 //  `openFolder(_:)` for a chosen URL and publishes `lastError` for the view to surface.
 //  (AppKit is imported only for app-lifecycle notifications, not for any UI presentation.)
 //
+//  Library vs Document (architecture §2.2): the library owns the folder + file list; the
+//  currently open file is a `Document` (its URL + on-disk snapshot). `text` is the live
+//  editable buffer; `text != document.onDiskText` is the dirty signal.
+//
 //  Autosave: edits are flushed after a short idle, on resign-active / terminate, and before
-//  switching files — every write byte-exact and atomic (MarkdownFileIO). `loadedText` is the
-//  on-disk truth; `text != loadedText` is the dirty signal.
+//  switching files — every write byte-exact and atomic (MarkdownFileIO).
 //
 
 import AppKit
@@ -22,18 +25,15 @@ import SwiftUI
 
 @MainActor
 final class LibraryModel: ObservableObject {
+    // Library
     @Published var folderURL: URL?
     @Published var files: [URL] = []
-    @Published var text: String = ""
-    /// A user-facing error for the view to surface (cleared when dismissed). The model never
-    /// presents an alert itself.
-    @Published var lastError: String?
     @Published var selectedFile: URL? {
         didSet {
             guard selectedFile != oldValue else { return }
             // Flush unsaved edits of the file we're leaving before switching away.
-            if let previous = oldValue, text != loadedText {
-                try? MarkdownFileIO.write(text, to: previous)
+            if let doc = document, text != doc.onDiskText {
+                try? MarkdownFileIO.write(text, to: doc.url)
             }
             // The List sets this during a SwiftUI view update; loading here would publish
             // `text` mid-update ("Publishing changes from within view updates"). Defer to
@@ -45,9 +45,22 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    // Open document
+    /// The live editable buffer the editor binds to.
+    @Published var text: String = ""
+    /// The currently open file's context (URL + on-disk snapshot). Nil when nothing is open.
+    @Published private(set) var document: Document?
+    /// A user-facing error for the view to surface (cleared when dismissed). The model never
+    /// presents an alert itself.
+    @Published var lastError: String?
+
+    /// True when the buffer differs from what's on disk.
+    var isDirty: Bool {
+        guard let document else { return false }
+        return text != document.onDiskText
+    }
+
     private var accessedFolder: URL?
-    /// The file's on-disk content — what the editor last loaded or saved.
-    private var loadedText = ""
     private var isSwitching = false
     private var cancellables = Set<AnyCancellable>()
 
@@ -67,7 +80,7 @@ final class LibraryModel: ObservableObject {
         }
     }
 
-    // MARK: - Folder
+    // MARK: - Library
 
     /// Open a folder the user chose in the view (L1 presents the picker; the model stays
     /// UI-free). The URL is expected to be security-scoped.
@@ -79,7 +92,7 @@ final class LibraryModel: ObservableObject {
         folderURL = url
         selectedFile = nil
         text = ""
-        loadedText = ""
+        document = nil
         refreshFiles()
     }
 
@@ -105,29 +118,29 @@ final class LibraryModel: ObservableObject {
             }
     }
 
-    // MARK: - File
+    // MARK: - Document
 
     private func loadSelected() {
         defer { isSwitching = false }
         guard let url = selectedFile else {
             text = ""
-            loadedText = ""
+            document = nil
             return
         }
         do {
             let contents = try MarkdownFileIO.read(url)
             text = contents
-            loadedText = contents
+            document = Document(url: url, onDiskText: contents)
         } catch MarkdownFileIO.IOError.notValidUTF8 {
             text = ""
-            loadedText = ""
+            document = nil
             lastError = String(
                 localized:
                     "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
             )
         } catch {
             text = ""
-            loadedText = ""
+            document = nil
             lastError = String(
                 localized:
                     "Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)"
@@ -136,14 +149,13 @@ final class LibraryModel: ObservableObject {
     }
 
     func save() {
-        guard let url = selectedFile else { return }
+        guard let doc = document else { return }
         do {
-            try MarkdownFileIO.write(text, to: url)
-            loadedText = text
+            try MarkdownFileIO.write(text, to: doc.url)
+            document = Document(url: doc.url, onDiskText: text)
         } catch {
             lastError = String(
-                localized:
-                    "Couldn't save \"\(url.lastPathComponent)\": \(error.localizedDescription)"
+                localized: "Couldn't save \"\(doc.displayName)\": \(error.localizedDescription)"
             )
         }
     }
@@ -152,10 +164,10 @@ final class LibraryModel: ObservableObject {
     /// explicit `save()` surfaces the error. Skipped mid-switch so a stale `text` is never
     /// written to the newly selected file.
     private func autosaveIfNeeded() {
-        guard !isSwitching, let url = selectedFile, text != loadedText else { return }
+        guard !isSwitching, let doc = document, text != doc.onDiskText else { return }
         do {
-            try MarkdownFileIO.write(text, to: url)
-            loadedText = text
+            try MarkdownFileIO.write(text, to: doc.url)
+            document = Document(url: doc.url, onDiskText: text)
         } catch {
             // Intentionally silent — see doc comment.
         }
