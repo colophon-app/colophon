@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: LibraryModel
     @State private var isChoosingFolder = false
     @State private var showPreview = false
+    @State private var previewSync = PreviewSync()
 
     var body: some View {
         NavigationSplitView {
@@ -52,10 +53,10 @@ struct ContentView: View {
             // Editor + optional split preview
             if model.selectedFile != nil {
                 HSplitView {
-                    MarkdownTextView(text: $model.text)
+                    MarkdownTextView(text: $model.text, sync: previewSync)
                         .frame(minWidth: 320)
                     if showPreview {
-                        PreviewWebView(markdown: model.text)
+                        PreviewWebView(markdown: model.text, sync: previewSync)
                             .frame(minWidth: 320)
                     }
                 }

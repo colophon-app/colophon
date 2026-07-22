@@ -34,9 +34,10 @@ import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
     @Binding var text: String
+    var sync: PreviewSync?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, sync: sync)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -103,6 +104,7 @@ struct MarkdownTextView: NSViewRepresentable {
         enum Trigger { case load, edit }
 
         private let text: Binding<String>
+        private let sync: PreviewSync?
         weak var textView: NSTextView?
         weak var contentStorage: NSTextContentStorage?
         weak var textLayoutManager: NSTextLayoutManager?
@@ -121,8 +123,9 @@ struct MarkdownTextView: NSViewRepresentable {
         private var pending: DispatchWorkItem?
         private var isRestyling = false  // true while we post the re-vend signal (below)
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, sync: PreviewSync?) {
             self.text = text
+            self.sync = sync
         }
 
         // MARK: - NSTextViewDelegate
@@ -131,6 +134,15 @@ struct MarkdownTextView: NSViewRepresentable {
             guard !isRestyling, let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
             reparse(trigger: .edit)
+        }
+
+        /// Report the caret's 1-based source line so the preview can follow it (M1.4.b).
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let sync, let textView = notification.object as? NSTextView else { return }
+            let string = textView.string as NSString
+            let offset = min(textView.selectedRange().location, string.length)
+            let line = string.substring(to: offset).reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+            sync.caretMoved(toLine: line)
         }
 
         // MARK: - NSTextContentStorageDelegate (lazy per-paragraph styling)
