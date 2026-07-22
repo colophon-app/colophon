@@ -4,9 +4,6 @@
     "\"%@\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file." : {
 
     },
-    "Choose a folder of Markdown files." : {
-
-    },
     "Couldn't open \"%@\": %@" : {
       "localizations" : {
         "en" : {
@@ -31,9 +28,6 @@
 
     },
     "OK" : {
-
-    },
-    "Open" : {
 
     },
     "Open a folder to begin" : {
