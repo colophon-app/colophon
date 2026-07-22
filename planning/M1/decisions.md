@@ -101,6 +101,15 @@
 - **知会**：Sparkle 的 D-M0-1(为避 network.client 而用 Downloader XPC)理由已 moot,但 XPC 方案无害,M1.9 接 Sparkle 时可重评是否简化。
 - **状态**：已定;红线 [R2.3](../standards/security-and-privacy.md) 已改。
 
+## D-M1-14 · M1.4.c 预览代码高亮 = highlight.js 服务端跑（进程内 JSCore），不进 WebView — 订正 D-M1-10 ② 的载体
+
+- **背景**：D-M1-10 ② 原设「预览区 highlight.js 起步」默认理解为**在 WebView 里**跑 hljs。M1.4.c 动手设计（2026-07-22，多 agent workflow + 对抗验证）发现进 WebView 的两条路都有代价：**内联**会把 `script-src 'unsafe-inline'` 钉死、每次 0.15s 重载重解析 ~90KB blob，且带 `</script>`-in-blob 截断坑，与 M1.4.d 收紧 CSP 的终局对着干；**WKURLSchemeHandler** 红队实测确认 `loadHTMLString(_, baseURL: nil)` 下文档是 opaque origin，自定义 scheme 子资源**不会**路由到 handler（`start()` 不触发），要让它生效必须先把顶层加载改成自定义 scheme origin——那是 M1.4.d 的活，现在做等于半迁移 + 二次改同一批文件。
+- **决定**：**M1.4.c 让 highlight.js 在 Swift 进程内的 JavaScriptCore 里跑**（L4 Model→HTML 单向）。把 cmark 输出的 `<pre data-sourcepos><code class="language-XXX">…</code></pre>` 中 **`<code>` 内层**替换成 hljs 染色后的 `<span>`，**`<pre>`（含 `data-sourcepos`）一字节不动**；WebView 只收到「预染 `<span>` + 内联主题 `<style>`」。**CSP 原样不变**（不加 `script-src`、不碰 `connect-src 'none'`）、**零新增网页脚本**、绕开 baseURL/scheme 坑、跟光标锚点不坏（高亮在 `loadHTMLString` 前同步完成，`build()` 量到的是终态 DOM）。
+- **关键约束（load-bearing）**：`JSContext` 建一次、复用、钉在**单一专用串行队列**（JSCore 跨队列不安全，逐键新建上下文要几十 ms 且跨队列用会崩）；高亮全程**主线程外**，只在 `loadHTMLString` 回主线程；单围栏 >~40KB 跳过高亮（纯淡背景兜底）；用 generation token 丢弃过期结果。**未注册语言**先 `hljs.getLanguage(x)` 判空 + `try/catch`（hljs v11 遇未知语言**抛异常**不是返 nil），并装 `exceptionHandler`。UMD 版 hljs 在裸 JSContext 里 `window/self` 均 undefined，需 `var window=this,self=this;` 垫片 + warm() 断言 `hljs` 已挂全局。
+- **不触碰**：**编辑区仍只「等宽 + 淡背景」、不引 JSCore**（D-M1-10 ② 编辑区规则不变——本决策只改预览区 L4 单向渲染的载体）。KaTeX/Mermaid/复制按钮/严格 CSP + scheme handler 仍是后续 M1.4.c/d。Shiki 升级（纯 JS 引擎、必进 WebView）时本服务端路径作废，故 `CodeHighlighter` 接口收窄成 `String→String` 以控改动面。
+- **依赖/许可**：highlight.js（**BSD-3-Clause**）作 `dependencies-and-licenses.md` §4 的 vendored 静态资源**打包**（非 SPM 包，`Package.resolved` 不动）；JavaScriptCore 为系统框架。记入 `THIRD-PARTY-LICENSES.md`：版本 + 源 URL + 完整 BSD-3 文本 + 构建期 sha256 + 打包语言清单（可复算，遵 D-M1-11「看 LICENSE 文件、别信摘要」）。
+- **状态**：已定（订正 D-M1-10 ② 的实现载体；CSP/网络红线不变）。
+
 ---
 
 ## M1 待落锤清单（spike 输出，回填本文 + architecture §8/§9）
