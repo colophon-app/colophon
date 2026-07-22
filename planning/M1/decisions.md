@@ -115,8 +115,8 @@
 - **背景**：M1.2 原设两层（architecture §3.3：FSEvents 库级 + NSFilePresenter 单文件，「两者都要」）。M1.2 动手设计（多 agent workflow + 对抗验证）得出一个**重构性判断**：真正的数据安全风险**不是「漏掉变更事件」，而是「app 用陈旧 buffer 覆盖外部改动」**（autosave/save clobber，实测三处未协调写 `LibraryModel.swift` :36/:142/:157，autosave 守卫对外部改动无感）。而这个覆盖的修复是**与监听无关的**——在唯一的 `writeAndRecord` 写入收口处做「写前读 + SHA-256 比对」：磁盘 ≠ 我上次写的 → 中止写、升非模态横幅。一旦「覆盖」由写入路径负责，FSEvents 对 dogfood 的唯一增益（前台时实时重载打开的文件）就退化为 **UX 延迟差、不是数据丢失差**。
 - **决定**：**M1.2 Increment 1 = 仅 Tier-1**（单文件 `NSFilePresenter`）+ **写前读防覆盖** + **SHA-256 自写去重** + **聚焦/前台对账扫描**（未协调写者如 sed/echo 的主网）+ **静默保选区重载**（干净文件）/ **脏文件非模态 Reload/Ignore/Compare 横幅**。**vault 级 FSEvents（Tier-2）推迟到 M1.5**——搜索索引才是「库级变更感知」的首个真实消费者；在那之前侧栏对**非打开**文件的增删改不实时刷新（无消费者，推迟干净）。**同一增量内落地 D-M1-8 协调原子写**（`replaceItemAt` 包 `NSFileCoordinator` + Cocoa-513 重试），**绝不让监听跑在裸 `MarkdownFileIO.write` 上**。
 - **载荷/红线**：`lastWrittenHash[url]` = 已接受磁盘真相的 SHA-256，在**每个接受磁盘真相的点**推进（初始加载 / 静默重载 / Reload / Ignore），否则重载后首次保存误中止（复审 BLOCKER①）；切文件 flush 若因外部改动中止，**不得静默丢弃离开文件的未存编辑**（复审 BLOCKER②，需否决切换或暂存）；重载在 IME 组字（`hasMarkedText`）中延后、绝不 `replaceCharacters`；写前读把整文件读+哈希放 Q_io（大文件别卡主线程）；**绝不 mtime/inode**、**绝不读 `.layoutManager`**。自刷新死循环结构性关闭（重载无写 + `isLoading` 抑制 `changed` + 快照推进 `isDirty=false`；SHA-256 是纵深防御不是断环器）。
-- **待验（gate spike）**：macOS 15 上未协调写者（`sed -i` / `>` / open+write+rename）是否触发 `presentedItemDidChange`（决定是否需要 Increment 2 的 `DispatchSource`-vnode 补充）+ 队列拓扑（`NSFileCoordinator(filePresenter:self)` 建在 presenter 串行队列上自抑制我方写、外部重读在另一串行队列不死锁）。结果回填本条。
-- **状态**：已定（Increment 1 方案）；spike 结果待回填（M1.2 step 1 / step 9）。
+- **spike 实测结论（2026-07-22，step 1，全绿优于悲观预设）**：macOS 15 上，**全部 4 种未协调外部写（`echo >>` / `printf >` / `sed -i` / python open+write+rename）在 Colophon 前台时都触发了 `presentedItemDidChange`** → **单文件 presenter 已给 dogfood 写者实时覆盖，Increment 2 的 `DispatchSource`-vnode 不需要**（对账扫描降为纯兜底/漏事件补网）。我方协调写（`NSFileCoordinator(filePresenter:self)` 建在 presenter 串行队列 + temp + `replaceItemAt`）**自抑制成功**（写完无 FIRED；SHA-256 仍作权威兜底）。外部协调读在独立串行队列（Q_io）**无死锁**。
+- **状态**：已定；spike 已过。Increment 1 按方案实施、**跳过 Increment 2**；FSEvents 仍留 M1.5。
 
 ---
 
