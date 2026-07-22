@@ -58,6 +58,8 @@ M1.9  发布自动化 + Sparkle + Homebrew ← 收官（但 EdDSA 私钥/SUFeedU
 
 > 目标：**作者本人能开始每天用它写**（= M1 DoD 的判据）。前置：M1.0 内核过。依据 PRD §5.1 A/B/D、research §1/§12、D-M1-8。
 
+> **进度（2026-07-22）**：✅ Agent 文件识别、自动保存、L2 UI 隔离、`Document` 类型、嵌套文件树（前几轮）。✅ **文本所有权重构（M1.0 Day1 finding 的病根）**——L2 `TextBuffer` 独占一颗 `NSTextStorage` 作唯一真相源（architecture §2.2），编辑器 `contentStorage.textStorage = buffer.storage` 注入共享，**删掉每键整串 @Binding 往返**（`text.wrappedValue = textView.string` → @Published → SwiftUI → updateNSView O(N) 比 → 推预览），**1MB 文件末尾打字终于丝滑**。变更检测放 L2（`NSTextStorageDelegate.didProcessEditing` → payload-free `changed` 信号，预览+自动保存防抖读 `buffer.string`；也为将来程序化/AI 编辑触发）。同轮内建正确性：`undoManager(for:)→buffer.undoManager`（切文件 `load()` 清对的撤销栈，防 Cmd-Z 把旧文件编辑串进新文件损坏字节）、IME 组字抑制+组字结束补发、样式重-vend 防重入 flag、加载文件光标归顶（编辑器/光标/预览一致）、光标行统计换原生扫描（去掉每键 O(N)）。**byte-exact 修复**：句号替换（无 view 属性）经 `set()` 写 app 域强制关（`register()` 被系统全局盖过，双空格曾变句号）。`TextBufferTests` 锁 load byte-exact + 撤销清空 + dirty 比较。前置了一个一次性注入 spike 实测确认 macOS 15 上 `contentStorage.textStorage=自管storage` 是共享（非 @NSCopying 拷贝）+ 两 delegate 均触发。⬜ 本段仍欠：源码样式化产品化（其余定界符弱化）、文件树 10k 懒加载、落盘终态 D-M1-8（`replaceItemAt`+`NSFileCoordinator`+xattr）、frontmatter 显示、IME 深度守卫（M1.3）。
+
 - [ ] **源码样式化**落地（M1.0 切片产品化）：标题变大、粗体变粗、标记弱化保留；rubric red 光标行标记（用 M1.0.5a 定的机制）。
 - [ ] **Agent 文件识别表**（research §15 批判点名 M1 品牌一半、零覆盖）：**数据驱动**的 {文件名/glob/路径 → 类型} 表识别 `CLAUDE.md`/`AGENTS.md`/`*.mdc`/`SKILL.md`/`llms.txt`；「特别渲染」在源码样式化态先做轻处理（如顶部标识 + frontmatter 区块着色），与 frontmatter 显示协同。
 - [ ] **文件树懒加载**（批判点名，与搜索是**两件事**）：`FileManager.enumerator` 惰性枚举、虚拟化树、security-scope 下遍历、跟踪重命名/移动，撑 10k+ 文件流畅（architecture §2.3）。
