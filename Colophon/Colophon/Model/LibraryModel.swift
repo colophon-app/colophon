@@ -93,9 +93,11 @@ final class LibraryModel: ObservableObject {
     private var isRevertingSelection = false  // re-entrancy guard for a vetoed file switch
     private var cancellables = Set<AnyCancellable>()
     /// SHA-256 of the bytes we last wrote (or accepted from disk) per file — the self-write
-    /// sentinel (D-M1-9). Recorded wherever we accept disk truth (write + load); the M1.2
-    /// read-before-write guard (next step) compares a coordinated re-read against it.
+    /// sentinel (D-M1-9). Recorded wherever we accept disk truth (write + load + external reload);
+    /// the read-before-write guard compares a coordinated re-read against it.
     private var lastWrittenHash: [URL: Data] = [:]
+    /// Watches the open file for external changes (M1.2 / D-M1-15). Nil when nothing is open.
+    private var presenter: DocumentPresenter?
 
     init() {
         // Autosave triggers: idle after edits, app resigns active, app terminates. The buffer
@@ -119,6 +121,7 @@ final class LibraryModel: ObservableObject {
     /// Open a folder the user chose in the view (L1 presents the picker; the model stays
     /// UI-free). The URL is expected to be security-scoped.
     func openFolder(_ url: URL) {
+        setPresenter(for: nil)  // stop watching before the old folder's security scope is dropped
         accessedFolder?.stopAccessingSecurityScopedResource()
         _ = url.startAccessingSecurityScopedResource()
         accessedFolder = url
@@ -142,9 +145,11 @@ final class LibraryModel: ObservableObject {
 
     private func loadSelected() {
         defer { isSwitching = false }
+        pendingExternalChange = nil  // fresh file — clear any prior file's pending state
         guard let url = selectedFile else {
             buffer.load("")
             document = nil
+            setPresenter(for: nil)
             return
         }
         do {
@@ -152,9 +157,11 @@ final class LibraryModel: ObservableObject {
             buffer.load(contents)
             document = Document(url: url, onDiskText: contents)
             lastWrittenHash[url] = CoordinatedFileIO.hash(contents)  // accept disk truth
+            setPresenter(for: url)  // watch the open file for external changes
         } catch MarkdownFileIO.IOError.notValidUTF8 {
             buffer.load("")
             document = nil
+            setPresenter(for: nil)
             lastError = String(
                 localized:
                     "\"\(url.lastPathComponent)\" isn't valid UTF-8. Colophon won't open it to avoid corrupting the file."
@@ -162,10 +169,43 @@ final class LibraryModel: ObservableObject {
         } catch {
             buffer.load("")
             document = nil
+            setPresenter(for: nil)
             lastError = String(
                 localized:
                     "Couldn't open \"\(url.lastPathComponent)\": \(error.localizedDescription)"
             )
+        }
+    }
+
+    /// (Re)register the single-file presenter for the open document, or tear it down (url == nil).
+    /// Stopped before the folder's security scope is dropped (openFolder) so no coordinated read
+    /// outlives its scope.
+    private func setPresenter(for url: URL?) {
+        presenter?.stop()
+        presenter = nil
+        guard let url else { return }
+        presenter = DocumentPresenter(url: url) { [weak self] contents in
+            MainActor.assumeIsolated { self?.applyExternalChange(url: url, newContents: contents) }
+        }
+    }
+
+    /// Deliver an external on-disk change to the open file (from the presenter or a reconcile scan).
+    /// If the incoming bytes are really our own last write, ignore it (SHA-256 dedup). Otherwise a
+    /// CLEAN document silently reloads in place (caret preserved); a DIRTY document surfaces a
+    /// non-modal banner so we never clobber the user's unsaved edits.
+    func applyExternalChange(url: URL, newContents: String) {
+        guard url == document?.url else { return }
+        guard CoordinatedFileIO.hash(newContents) != lastWrittenHash[url] else { return }
+        if buffer.string == document?.onDiskText {
+            if buffer.reloadPreservingSelection(newContents) {
+                document = Document(url: url, onDiskText: newContents)
+                lastWrittenHash[url] = CoordinatedFileIO.hash(newContents)  // accept disk truth
+            } else {
+                // Editor is mid-IME-composition — defer via the banner, don't mutate under marked text.
+                pendingExternalChange = PendingExternalChange(url: url, diskContents: newContents)
+            }
+        } else {
+            pendingExternalChange = PendingExternalChange(url: url, diskContents: newContents)
         }
     }
 
