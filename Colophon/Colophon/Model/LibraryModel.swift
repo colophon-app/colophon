@@ -135,6 +135,28 @@ final class LibraryModel: ObservableObject {
         applyExternalChange(url: doc.url, newContents: contents)
     }
 
+    // MARK: - Resolve a pending external change (the banner's actions)
+
+    /// Take the disk version, discarding the buffer's unsaved edits (recoverable with one Cmd-Z —
+    /// reloadPreservingSelection registers a single undo frame). Advances the snapshot + fingerprint.
+    func reloadFromPending() {
+        guard let pending = pendingExternalChange, pending.url == document?.url else { return }
+        _ = buffer.reloadPreservingSelection(pending.diskContents)
+        document = Document(url: pending.url, onDiskText: pending.diskContents)
+        lastWrittenHash[pending.url] = CoordinatedFileIO.hash(pending.diskContents)  // accept disk
+        pendingExternalChange = nil
+    }
+
+    /// Keep the buffer's edits and dismiss the banner. Re-baselines the fingerprint to the current
+    /// disk contents so (a) the SAME external change doesn't re-nag and (b) a later save is permitted
+    /// (last-writer-wins — the user's edits overwrite disk; never a silent merge). The document
+    /// stays dirty.
+    func ignorePending() {
+        guard let pending = pendingExternalChange else { return }
+        lastWrittenHash[pending.url] = CoordinatedFileIO.hash(pending.diskContents)
+        pendingExternalChange = nil
+    }
+
     // MARK: - Library
 
     /// Open a folder the user chose in the view (L1 presents the picker; the model stays

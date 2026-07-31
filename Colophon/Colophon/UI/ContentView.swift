@@ -52,12 +52,22 @@ struct ContentView: View {
         } detail: {
             // Editor + optional split preview
             if model.selectedFile != nil {
-                HSplitView {
-                    MarkdownTextView(buffer: model.buffer, sync: previewSync)
-                        .frame(minWidth: 320)
-                    if showPreview {
-                        PreviewWebView(buffer: model.buffer, sync: previewSync)
+                VStack(spacing: 0) {
+                    // Non-modal banner when the open file changed on disk (M1.2) — editing
+                    // continues underneath; nothing is written until the user chooses.
+                    if let pending = model.pendingExternalChange {
+                        ExternalChangeBanner(
+                            fileName: pending.url.lastPathComponent,
+                            onReload: { model.reloadFromPending() },
+                            onIgnore: { model.ignorePending() })
+                    }
+                    HSplitView {
+                        MarkdownTextView(buffer: model.buffer, sync: previewSync)
                             .frame(minWidth: 320)
+                        if showPreview {
+                            PreviewWebView(buffer: model.buffer, sync: previewSync)
+                                .frame(minWidth: 320)
+                        }
                     }
                 }
                 .toolbar {
@@ -127,5 +137,31 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Non-modal banner shown when the open file changed on disk under the user (M1.2). Editing
+/// continues underneath; Reload takes the disk version (undoable), Keep Mine keeps the edits.
+private struct ExternalChangeBanner: View {
+    let fileName: String
+    let onReload: () -> Void
+    let onIgnore: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            // A filename is content, not UI copy — never localize it.
+            Text(verbatim: fileName).fontWeight(.semibold)
+            Text("changed on disk").foregroundStyle(.secondary)
+            Spacer()
+            Button("Reload", action: onReload)
+            Button("Keep Mine", action: onIgnore)
+        }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }

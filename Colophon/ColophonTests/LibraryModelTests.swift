@@ -70,4 +70,32 @@ struct LibraryModelTests {
         #expect(model.buffer.string == "reconciled\n")
         #expect(model.document?.onDiskText == "reconciled\n")
     }
+
+    @Test func reloadFromPendingTakesDiskAndClearsBanner() async throws {
+        let (model, file) = try await openedModel(contents: "v1\n")
+        model.buffer.load("my edit\n")  // dirty
+        try Data("disk v2\n".utf8).write(to: file)
+        model.applyExternalChange(url: file, newContents: "disk v2\n")
+        #expect(model.pendingExternalChange != nil)
+
+        model.reloadFromPending()  // banner: Reload
+        #expect(model.buffer.string == "disk v2\n")
+        #expect(model.document?.onDiskText == "disk v2\n")
+        #expect(model.pendingExternalChange == nil)
+    }
+
+    @Test func ignorePendingKeepsEditsAndAllowsLaterSave() async throws {
+        let (model, file) = try await openedModel(contents: "v1\n")
+        model.buffer.load("my edit\n")  // dirty
+        try Data("disk v2\n".utf8).write(to: file)
+        model.applyExternalChange(url: file, newContents: "disk v2\n")
+
+        model.ignorePending()  // banner: Ignore
+        #expect(model.pendingExternalChange == nil)
+        #expect(model.buffer.string == "my edit\n")  // edits kept
+
+        // A later save now overwrites disk (last-writer-wins), no false-abort.
+        model.save()
+        #expect(try String(contentsOf: file, encoding: .utf8) == "my edit\n")
+    }
 }
