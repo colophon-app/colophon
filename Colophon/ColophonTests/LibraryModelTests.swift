@@ -62,4 +62,12 @@ struct LibraryModelTests {
         #expect(model.pendingExternalChange == nil)
         #expect(model.document?.onDiskText == "v1\n")
     }
+
+    @Test func reconcileReloadsAfterAnExternalChange() async throws {
+        let (model, file) = try await openedModel(contents: "v1\n")
+        try Data("reconciled\n".utf8).write(to: file)  // changed while we weren't watching
+        model.reconcileOpenDocument()  // simulate regaining focus — reads disk + applies
+        #expect(model.buffer.string == "reconciled\n")
+        #expect(model.document?.onDiskText == "reconciled\n")
+    }
 }

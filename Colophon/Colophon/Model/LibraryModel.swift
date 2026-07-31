@@ -114,6 +114,25 @@ final class LibraryModel: ObservableObject {
                 .sink { [weak self] _ in MainActor.assumeIsolated { self?.autosaveIfNeeded() } }
                 .store(in: &cancellables)
         }
+        // Reconcile the open file against disk when we regain focus / foreground — the net for an
+        // external change the presenter might have missed while we weren't frontmost.
+        for name in [
+            NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification,
+        ] {
+            NotificationCenter.default.publisher(for: name)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reconcileOpenDocument() }
+                }
+                .store(in: &cancellables)
+        }
+    }
+
+    /// Re-check the open file against disk (content hash, never mtime) and apply any external
+    /// change — the belt-and-suspenders net to the presenter, run on window focus / app foreground.
+    func reconcileOpenDocument() {
+        guard let doc = document, let contents = try? CoordinatedFileIO.read(doc.url) else {
+            return
+        }
+        applyExternalChange(url: doc.url, newContents: contents)
     }
 
     // MARK: - Library
