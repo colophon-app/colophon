@@ -25,6 +25,16 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// An external change to the open file awaiting the user's Reload / Ignore decision (M1.2).
+struct PendingExternalChange: Equatable {
+    let url: URL
+    let diskContents: String
+}
+
+/// Thrown by `writeAndRecord` when the on-disk file changed under us — the write is refused so a
+/// stale buffer never clobbers an external edit.
+private enum WriteAborted: Error { case externalChange }
+
 @MainActor
 final class LibraryModel: ObservableObject {
     // Library
@@ -32,10 +42,20 @@ final class LibraryModel: ObservableObject {
     @Published var fileTree: [FileNode] = []
     @Published var selectedFile: URL? {
         didSet {
-            guard selectedFile != oldValue else { return }
+            guard selectedFile != oldValue, !isRevertingSelection else { return }
             // Flush unsaved edits of the file we're leaving before switching away.
             if let doc = document, buffer.string != doc.onDiskText {
-                try? writeAndRecord(buffer.string, to: doc.url)
+                do {
+                    try writeAndRecord(buffer.string, to: doc.url)
+                } catch {
+                    // The departing file changed on disk under us — flushing would clobber it, so
+                    // do NOT drop its unsaved edits (BLOCKER: silent switch-flush loss). Veto the
+                    // switch: stay on the file and let the banner (pendingExternalChange) resolve it.
+                    isRevertingSelection = true
+                    selectedFile = oldValue
+                    isRevertingSelection = false
+                    return
+                }
             }
             // The List sets this during a SwiftUI view update; loading here would publish
             // `text` mid-update ("Publishing changes from within view updates"). Defer to
@@ -57,6 +77,11 @@ final class LibraryModel: ObservableObject {
     /// presents an alert itself.
     @Published var lastError: String?
 
+    /// Set when a coordinated write was refused because the open file changed on disk under us
+    /// (or a reconcile/presenter observed an external change while the buffer is dirty). The view
+    /// surfaces a non-modal banner (M1.2 step 7); until it's resolved, autosave/save are gated off.
+    @Published private(set) var pendingExternalChange: PendingExternalChange?
+
     /// True when the buffer differs from what's on disk.
     var isDirty: Bool {
         guard let document else { return false }
@@ -65,6 +90,7 @@ final class LibraryModel: ObservableObject {
 
     private var accessedFolder: URL?
     private var isSwitching = false
+    private var isRevertingSelection = false  // re-entrancy guard for a vetoed file switch
     private var cancellables = Set<AnyCancellable>()
     /// SHA-256 of the bytes we last wrote (or accepted from disk) per file — the self-write
     /// sentinel (D-M1-9). Recorded wherever we accept disk truth (write + load); the M1.2
@@ -143,18 +169,28 @@ final class LibraryModel: ObservableObject {
         }
     }
 
-    /// The single write choke point (M1.2): coordinated byte-exact atomic write + record the
-    /// SHA-256 of the bytes written, so an incoming change event can tell this self-write from an
-    /// external one. All three write sites (save, autosave, switch-flush) route through here.
+    /// The single write choke point (M1.2): a coordinated byte-exact atomic write GUARDED by a
+    /// read-before-write check. If the file still matches what we last wrote, write and record the
+    /// new SHA-256. If it changed on disk under us, DON'T clobber it — record a
+    /// `pendingExternalChange` (the view surfaces a banner) and throw so the caller stops. All
+    /// three write sites (save, autosave, switch-flush) route through here.
     private func writeAndRecord(_ text: String, to url: URL) throws {
-        lastWrittenHash[url] = try CoordinatedFileIO.write(text, to: url)
+        switch try CoordinatedFileIO.writeGuarded(text, to: url, expected: lastWrittenHash[url]) {
+        case .wrote(let fingerprint):
+            lastWrittenHash[url] = fingerprint
+        case .externalChange(let diskContents):
+            pendingExternalChange = PendingExternalChange(url: url, diskContents: diskContents)
+            throw WriteAborted.externalChange
+        }
     }
 
     func save() {
-        guard let doc = document else { return }
+        guard let doc = document, pendingExternalChange == nil else { return }
         do {
             try writeAndRecord(buffer.string, to: doc.url)
             document = Document(url: doc.url, onDiskText: buffer.string)
+        } catch is WriteAborted {
+            // The file changed on disk under us — pendingExternalChange is set; the banner resolves it.
         } catch {
             lastError = String(
                 localized: "Couldn't save \"\(doc.displayName)\": \(error.localizedDescription)"
@@ -166,12 +202,14 @@ final class LibraryModel: ObservableObject {
     /// explicit `save()` surfaces the error. Skipped mid-switch so a stale `text` is never
     /// written to the newly selected file.
     private func autosaveIfNeeded() {
-        guard !isSwitching, let doc = document, buffer.string != doc.onDiskText else { return }
+        guard !isSwitching, pendingExternalChange == nil, let doc = document,
+            buffer.string != doc.onDiskText
+        else { return }
         do {
             try writeAndRecord(buffer.string, to: doc.url)
             document = Document(url: doc.url, onDiskText: buffer.string)
         } catch {
-            // Intentionally silent — see doc comment.
+            // Intentionally silent — a WriteAborted sets pendingExternalChange; other errors retry.
         }
     }
 }

@@ -38,6 +38,29 @@ enum CoordinatedFileIO {
         return try outcome!.get()
     }
 
+    /// Outcome of a guarded write.
+    enum WriteOutcome: Equatable {
+        case wrote(fingerprint: Data)
+        /// The file on disk differs from what we last wrote — an external editor changed it.
+        /// The write was NOT performed; `diskContents` is the current on-disk text.
+        case externalChange(diskContents: String)
+    }
+
+    /// Anti-clobber write (M1.2, the load-bearing data-safety guard). If the file still matches
+    /// `expected` (the SHA-256 of the bytes we last wrote or accepted), write and return the new
+    /// fingerprint. If disk DIFFERS — changed under us — do NOT overwrite; return the disk
+    /// contents so the caller can surface a reload. A brand-new file (`expected == nil`) or an
+    /// unreadable/absent file (transient / missing) falls through to a normal write rather than
+    /// bricking saves (deletion is handled separately via the presenter).
+    static func writeGuarded(
+        _ text: String, to url: URL, expected: Data?, presenter: NSFilePresenter? = nil
+    ) throws -> WriteOutcome {
+        if let expected, let disk = try? read(url, presenter: presenter), hash(disk) != expected {
+            return .externalChange(diskContents: disk)
+        }
+        return .wrote(fingerprint: try write(text, to: url, presenter: presenter))
+    }
+
     /// Coordinated atomic byte-exact write (D-M1-8). Returns SHA-256 of the bytes written.
     @discardableResult
     static func write(_ text: String, to url: URL, presenter: NSFilePresenter? = nil) throws -> Data

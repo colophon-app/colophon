@@ -55,4 +55,59 @@ struct CoordinatedFileIOTests {
         #expect(CoordinatedFileIO.hash("hello") == CoordinatedFileIO.hash("hello"))
         #expect(CoordinatedFileIO.hash("hello") != CoordinatedFileIO.hash("hello "))
     }
+
+    // MARK: - Anti-clobber guard (the load-bearing M1.2 data-safety guarantee)
+
+    /// An external editor changed the file under us → the guard must REFUSE to write and hand back
+    /// the disk contents, and the file must be left exactly as the external editor wrote it.
+    @Test func writeGuardedRefusesToClobberAnExternalChange() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let fp = try CoordinatedFileIO.write("ours v1\n", to: url)
+        // Simulate an uncoordinated external write (an agent rewriting the file).
+        try Data("EXTERNAL WINS\n".utf8).write(to: url)
+
+        let outcome = try CoordinatedFileIO.writeGuarded("ours v2\n", to: url, expected: fp)
+        #expect(outcome == .externalChange(diskContents: "EXTERNAL WINS\n"))
+        // The file was NOT overwritten with our stale buffer.
+        #expect(try Data(contentsOf: url) == Data("EXTERNAL WINS\n".utf8))
+    }
+
+    /// No external change → the guard writes normally and returns the new fingerprint.
+    @Test func writeGuardedWritesWhenUnchanged() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let fp1 = try CoordinatedFileIO.write("v1\n", to: url)
+        let outcome = try CoordinatedFileIO.writeGuarded("v2\n", to: url, expected: fp1)
+        #expect(outcome == .wrote(fingerprint: CoordinatedFileIO.hash("v2\n")))
+        #expect(try CoordinatedFileIO.read(url) == "v2\n")
+    }
+
+    /// A brand-new file (no recorded fingerprint) writes without guarding.
+    @Test func writeGuardedWritesNewFile() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let outcome = try CoordinatedFileIO.writeGuarded("new\n", to: url, expected: nil)
+        #expect(outcome == .wrote(fingerprint: CoordinatedFileIO.hash("new\n")))
+        #expect(try CoordinatedFileIO.read(url) == "new\n")
+    }
+
+    /// After we ACCEPT the external change (advance the fingerprint to the disk hash), the next
+    /// write must succeed — no false abort (the BLOCKER: a reload/ignore must re-baseline the hash).
+    @Test func writeGuardedProceedsAfterAcceptingDiskTruth() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try CoordinatedFileIO.write("ours v1\n", to: url)
+        try Data("EXTERNAL\n".utf8).write(to: url)
+        // Accept disk truth: re-baseline the expected fingerprint to the current disk contents.
+        let accepted = CoordinatedFileIO.hash("EXTERNAL\n")
+
+        let outcome = try CoordinatedFileIO.writeGuarded("ours v2\n", to: url, expected: accepted)
+        #expect(outcome == .wrote(fingerprint: CoordinatedFileIO.hash("ours v2\n")))
+        #expect(try CoordinatedFileIO.read(url) == "ours v2\n")
+    }
 }
