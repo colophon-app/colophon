@@ -16,7 +16,9 @@
 //  editable buffer; `text != document.onDiskText` is the dirty signal.
 //
 //  Autosave: edits are flushed after a short idle, on resign-active / terminate, and before
-//  switching files — every write byte-exact and atomic (MarkdownFileIO).
+//  switching files. Every write routes through the single `writeAndRecord` choke point — byte-
+//  exact, atomic, and coordinated (CoordinatedFileIO / D-M1-8), and fingerprinted (SHA-256) so
+//  an external change can be told from our own write (M1.2 / D-M1-9).
 //
 
 import AppKit
@@ -33,7 +35,7 @@ final class LibraryModel: ObservableObject {
             guard selectedFile != oldValue else { return }
             // Flush unsaved edits of the file we're leaving before switching away.
             if let doc = document, buffer.string != doc.onDiskText {
-                try? MarkdownFileIO.write(buffer.string, to: doc.url)
+                try? writeAndRecord(buffer.string, to: doc.url)
             }
             // The List sets this during a SwiftUI view update; loading here would publish
             // `text` mid-update ("Publishing changes from within view updates"). Defer to
@@ -64,6 +66,10 @@ final class LibraryModel: ObservableObject {
     private var accessedFolder: URL?
     private var isSwitching = false
     private var cancellables = Set<AnyCancellable>()
+    /// SHA-256 of the bytes we last wrote (or accepted from disk) per file — the self-write
+    /// sentinel (D-M1-9). Recorded wherever we accept disk truth (write + load); the M1.2
+    /// read-before-write guard (next step) compares a coordinated re-read against it.
+    private var lastWrittenHash: [URL: Data] = [:]
 
     init() {
         // Autosave triggers: idle after edits, app resigns active, app terminates. The buffer
@@ -119,6 +125,7 @@ final class LibraryModel: ObservableObject {
             let contents = try MarkdownFileIO.read(url)
             buffer.load(contents)
             document = Document(url: url, onDiskText: contents)
+            lastWrittenHash[url] = CoordinatedFileIO.hash(contents)  // accept disk truth
         } catch MarkdownFileIO.IOError.notValidUTF8 {
             buffer.load("")
             document = nil
@@ -136,10 +143,17 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    /// The single write choke point (M1.2): coordinated byte-exact atomic write + record the
+    /// SHA-256 of the bytes written, so an incoming change event can tell this self-write from an
+    /// external one. All three write sites (save, autosave, switch-flush) route through here.
+    private func writeAndRecord(_ text: String, to url: URL) throws {
+        lastWrittenHash[url] = try CoordinatedFileIO.write(text, to: url)
+    }
+
     func save() {
         guard let doc = document else { return }
         do {
-            try MarkdownFileIO.write(buffer.string, to: doc.url)
+            try writeAndRecord(buffer.string, to: doc.url)
             document = Document(url: doc.url, onDiskText: buffer.string)
         } catch {
             lastError = String(
@@ -154,7 +168,7 @@ final class LibraryModel: ObservableObject {
     private func autosaveIfNeeded() {
         guard !isSwitching, let doc = document, buffer.string != doc.onDiskText else { return }
         do {
-            try MarkdownFileIO.write(buffer.string, to: doc.url)
+            try writeAndRecord(buffer.string, to: doc.url)
             document = Document(url: doc.url, onDiskText: buffer.string)
         } catch {
             // Intentionally silent — see doc comment.
