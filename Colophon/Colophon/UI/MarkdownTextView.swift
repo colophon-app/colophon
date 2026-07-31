@@ -143,6 +143,11 @@ struct MarkdownTextView: NSViewRepresentable {
                     self.reparse(trigger: .load)
                 }
                 .store(in: &cancellables)
+            // An external in-place reload (M1.2) keeps the caret + scroll — the buffer already
+            // restored the (clamped) selection — so just restyle, no caret-to-top.
+            buffer.externallyReloaded
+                .sink { [weak self] in self?.reparse(trigger: .load) }
+                .store(in: &cancellables)
         }
 
         // MARK: - NSTextViewDelegate

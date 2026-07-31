@@ -33,6 +33,9 @@ final class TextBuffer: NSObject, NSTextStorageDelegate {
     let changed = PassthroughSubject<Void, Never>()
     /// Fired after load() swaps in new content, so the editor can restyle the whole document.
     let contentReloaded = PassthroughSubject<Void, Never>()
+    /// Fired after an external on-disk change is reloaded in place (M1.2), so the editor can
+    /// restyle WITHOUT resetting the caret to the top (unlike contentReloaded).
+    let externallyReloaded = PassthroughSubject<Void, Never>()
 
     /// Set by the editor so didProcessEditing can consult live IME composition state.
     weak var editorView: NSTextView?
@@ -65,6 +68,47 @@ final class TextBuffer: NSObject, NSTextStorageDelegate {
         isLoading = false
         undoManager.removeAllActions()
         contentReloaded.send()  // strictly after endEditing() returns
+    }
+
+    /// Reload the buffer from an external on-disk change (M1.2), IN PLACE. Unlike load(): the undo
+    /// stack is PRESERVED and the reload is itself ONE undoable step (Cmd-Z restores the user's
+    /// pre-reload text), and the selection is kept (clamped to the new length) rather than reset to
+    /// the top. Emits NO `changed` (the model advances the on-disk snapshot; a reload must not
+    /// re-arm autosave or mark dirty on its own). Returns false without touching the buffer if the
+    /// editor is mid-IME-composition (the caller should defer) or the text already matches.
+    @discardableResult
+    func reloadPreservingSelection(_ text: String) -> Bool {
+        guard editorView?.hasMarkedText() != true else { return false }
+        let oldText = storage.string
+        guard oldText != text else { return false }
+
+        let savedRanges = editorView?.selectedRanges
+        editorView?.breakUndoCoalescing()
+        undoManager.registerUndo(withTarget: self) { target in
+            _ = target.reloadPreservingSelection(oldText)
+        }
+
+        isLoading = true
+        storage.beginEditing()
+        storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
+        storage.setAttributes(
+            [.font: baseFont, .foregroundColor: NSColor.labelColor],
+            range: NSRange(location: 0, length: storage.length))
+        storage.endEditing()
+        isLoading = false
+
+        if let editorView, let savedRanges {
+            let length = storage.length
+            editorView.selectedRanges = savedRanges.map { value in
+                let range = value.rangeValue
+                let location = min(range.location, length)
+                return NSValue(
+                    range: NSRange(location: location, length: min(range.length, length - location))
+                )
+            }
+        }
+        externallyReloaded.send()
+        return true
     }
 
     /// Emit a change explicitly — used by the editor when IME composition ends (the committed

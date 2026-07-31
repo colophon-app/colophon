@@ -10,6 +10,7 @@
 //  see the Round B checklist.
 //
 
+import Combine
 import Foundation
 import Testing
 
@@ -57,5 +58,44 @@ struct TextBufferTests {
         #expect(buffer.string == document.onDiskText)  // clean right after load
         buffer.load("hello world")
         #expect(buffer.string != document.onDiskText)  // now differs → dirty
+    }
+
+    // MARK: - reloadPreservingSelection (M1.2 external in-place reload)
+
+    @Test func reloadIsByteExact() {
+        for sample in samples where sample != "x" {
+            let buffer = TextBuffer()
+            buffer.load("x")
+            _ = buffer.reloadPreservingSelection(sample)
+            #expect(buffer.string == sample)
+        }
+    }
+
+    @Test func reloadDoesNotEmitChanged() {
+        let buffer = TextBuffer()
+        buffer.load("original\n")
+        var changedCount = 0
+        let cancellable = buffer.changed.sink { changedCount += 1 }
+        _ = buffer.reloadPreservingSelection("external\n")
+        cancellable.cancel()
+        // A reload must NOT arm autosave / mark dirty on its own.
+        #expect(changedCount == 0)
+        #expect(buffer.string == "external\n")
+    }
+
+    @Test func reloadIsOneUndoableStep() {
+        let buffer = TextBuffer()
+        buffer.load("mine\n")  // clears undo
+        _ = buffer.reloadPreservingSelection("theirs\n")
+        #expect(buffer.string == "theirs\n")
+        #expect(buffer.undoManager.canUndo)
+        buffer.undoManager.undo()
+        #expect(buffer.string == "mine\n")  // Cmd-Z restores the pre-reload text
+    }
+
+    @Test func reloadIsNoOpWhenUnchanged() {
+        let buffer = TextBuffer()
+        buffer.load("same\n")
+        #expect(buffer.reloadPreservingSelection("same\n") == false)
     }
 }
