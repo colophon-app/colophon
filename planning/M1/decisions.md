@@ -116,7 +116,7 @@
 - **决定**：**M1.2 Increment 1 = 仅 Tier-1**（单文件 `NSFilePresenter`）+ **写前读防覆盖** + **SHA-256 自写去重** + **聚焦/前台对账扫描**（未协调写者如 sed/echo 的主网）+ **静默保选区重载**（干净文件）/ **脏文件非模态 Reload/Ignore/Compare 横幅**。**vault 级 FSEvents（Tier-2）推迟到 M1.5**——搜索索引才是「库级变更感知」的首个真实消费者；在那之前侧栏对**非打开**文件的增删改不实时刷新（无消费者，推迟干净）。**同一增量内落地 D-M1-8 协调原子写**（`replaceItemAt` 包 `NSFileCoordinator` + Cocoa-513 重试），**绝不让监听跑在裸 `MarkdownFileIO.write` 上**。
 - **载荷/红线**：`lastWrittenHash[url]` = 已接受磁盘真相的 SHA-256，在**每个接受磁盘真相的点**推进（初始加载 / 静默重载 / Reload / Ignore），否则重载后首次保存误中止（复审 BLOCKER①）；切文件 flush 若因外部改动中止，**不得静默丢弃离开文件的未存编辑**（复审 BLOCKER②，需否决切换或暂存）；重载在 IME 组字（`hasMarkedText`）中延后、绝不 `replaceCharacters`；写前读把整文件读+哈希放 Q_io（大文件别卡主线程）；**绝不 mtime/inode**、**绝不读 `.layoutManager`**。自刷新死循环结构性关闭（重载无写 + `isLoading` 抑制 `changed` + 快照推进 `isDirty=false`；SHA-256 是纵深防御不是断环器）。
 - **spike 实测结论（2026-07-22，step 1，全绿优于悲观预设）**：macOS 15 上，**全部 4 种未协调外部写（`echo >>` / `printf >` / `sed -i` / python open+write+rename）在 Colophon 前台时都触发了 `presentedItemDidChange`** → **单文件 presenter 已给 dogfood 写者实时覆盖，Increment 2 的 `DispatchSource`-vnode 不需要**（对账扫描降为纯兜底/漏事件补网）。我方协调写（`NSFileCoordinator(filePresenter:self)` 建在 presenter 串行队列 + temp + `replaceItemAt`）**自抑制成功**（写完无 FIRED；SHA-256 仍作权威兜底）。外部协调读在独立串行队列（Q_io）**无死锁**。
-- **状态**：已定；spike 已过。Increment 1 按方案实施、**跳过 Increment 2**；FSEvents 仍留 M1.5。
+- **状态**：已定；spike 已过。Increment 1 **步骤 2–7 已实现 + 单测覆盖**（协调写+指纹、写前读防覆盖+切文件否决、`reloadPreservingSelection`、`DocumentPresenter`、聚焦对账、脏文件横幅；`CoordinatedFileIOTests`/`TextBufferTests`/`LibraryModelTests` 共 35 用例绿），**跳过 Increment 2**；FSEvents 仍留 M1.5。**待办**：步骤 8（外部删除/改名边界硬化——当前删掉打开文件后再写会重建它；需与实况一起做）+ 步骤 5–7 的实况 GUI 验证（见 plan.md M1.2 进度的「明早测试」清单）。
 
 ---
 
