@@ -266,7 +266,10 @@ final class LibraryModel: ObservableObject {
     }
 
     func save() {
-        guard let doc = document, pendingExternalChange == nil else { return }
+        // Nothing to write when the buffer already matches disk — makes a redundant ⌘S a no-op
+        // (a rapid ⌘S burst was doing one coordinated read+write per press and janking the UI).
+        guard let doc = document, pendingExternalChange == nil, buffer.string != doc.onDiskText
+        else { return }
         do {
             try writeAndRecord(buffer.string, to: doc.url)
             document = Document(url: doc.url, onDiskText: buffer.string)
