@@ -77,7 +77,7 @@ M1.9  发布自动化 + Sparkle + Homebrew ← 收官（但 EdDSA 私钥/SUFeedU
 >
 > **✅ 真机验证通过（2026-08-01）**：外部改盘→干净静默重载(光标不跳顶) / 脏文件弹横幅、Reload(可 Cmd-Z 撤回)、Keep Mine(后写者胜、⌘S 能存)、切文件否决(留在 A、不丢编辑)、自写不触发重载/横幅。**过程中两个发现**：(a) `save()` 之前无脏检查→狂按 ⌘S 每次都协调读写卡主线程 → 已加"buffer==磁盘就跳过"(commit 45abb23);(b) 失焦即存(`willResignActive`)是**正确产品行为**——测试时切到 Terminal 会先把草稿存干净、于是走静默重载而非横幅(真实 Agent 后台改盘、你不切走时文档还脏→会弹横幅;失焦保存本身也被写前读保护、不覆盖)。SwiftUI「Publishing changes from within view updates」切文件警告——记待查(切文件否决里 `selectedFile = oldValue` 在 didSet 内重设,时序警告,功能正常)。
 >
-> ⬜ **步骤 8（外部删除/改名边界硬化——当前删掉打开文件后再写会重建它）+ Compare 视图** 留到与你一起做（本身也需实况测）。
+> ✅ **步骤 8（外部删除/改名边界硬化）已实现 + 单测（共 37 用例绿）**：`writeGuarded` 对已跟踪但消失的文件返回 `.removed` → 写入(尤其自动保存)**绝不静默重建消失的文件**;模型 `deletedFileURL` 状态(来自 presenter 的 `accommodatePresentedItemDeletion`/`presentedItemDidMove` + 对账存在性检查)门控自动保存 + 弹「deleted or moved on disk / Save to Restore」横幅(`restoreDeleted` 从 buffer 重建)。未协调 `mv` = 原路径消失 → 同一删除路径。**实况删除/改名待你验**(见下)。⬜ 仅剩 **Compare 视图**(横幅第三键,V1)。
 
 - [ ] **Tier 1 每个打开的 Document**：其协调对象作 `NSFilePresenter`（`presentedItemURL` + 专用串行 queue），open 时 `addFilePresenter`、close 时 remove；**所有读写**走 `NSFileCoordinator(filePresenter:).coordinate(...)`。
 - [ ] **Tier 2 文库级 FSEvents**：`FSEventStreamCreate` 于库根（`WatchRoot|UseCFTypes`，latency~0.05s，在 resolved bookmark 的 `startAccessingSecurityScopedResource` 后启），**目录级**事件（大 vault **别**开 `FileEvents` flag），自加 ~100–200ms 去抖。**手写 ~150 行，不引 FSWatcher。**
