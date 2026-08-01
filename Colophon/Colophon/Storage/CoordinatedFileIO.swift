@@ -44,6 +44,9 @@ enum CoordinatedFileIO {
         /// The file on disk differs from what we last wrote — an external editor changed it.
         /// The write was NOT performed; `diskContents` is the current on-disk text.
         case externalChange(diskContents: String)
+        /// A file we were tracking no longer exists (deleted or renamed under us). The write was
+        /// NOT performed — we never silently recreate a vanished file (the user must confirm).
+        case removed
     }
 
     /// Anti-clobber write (M1.2, the load-bearing data-safety guard). If the file still matches
@@ -55,8 +58,15 @@ enum CoordinatedFileIO {
     static func writeGuarded(
         _ text: String, to url: URL, expected: Data?, presenter: NSFilePresenter? = nil
     ) throws -> WriteOutcome {
-        if let expected, let disk = try? read(url, presenter: presenter), hash(disk) != expected {
-            return .externalChange(diskContents: disk)
+        if let expected {
+            // A tracked file that no longer exists was deleted/renamed externally — refuse to
+            // silently recreate it (the user confirms via the banner).
+            if !FileManager.default.fileExists(atPath: url.path) {
+                return .removed
+            }
+            if let disk = try? read(url, presenter: presenter), hash(disk) != expected {
+                return .externalChange(diskContents: disk)
+            }
         }
         return .wrote(fingerprint: try write(text, to: url, presenter: presenter))
     }

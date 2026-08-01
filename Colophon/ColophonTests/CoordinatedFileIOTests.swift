@@ -95,6 +95,17 @@ struct CoordinatedFileIOTests {
         #expect(try CoordinatedFileIO.read(url) == "new\n")
     }
 
+    /// A tracked file deleted/renamed under us → the guard reports `.removed` and does NOT recreate
+    /// it (never silently resurrect a vanished file).
+    @Test func writeGuardedReportsRemovedWhenFileVanished() throws {
+        let url = tempURL()
+        let fingerprint = try CoordinatedFileIO.write("v1\n", to: url)
+        try FileManager.default.removeItem(at: url)  // external delete
+        #expect(
+            try CoordinatedFileIO.writeGuarded("v2\n", to: url, expected: fingerprint) == .removed)
+        #expect(!FileManager.default.fileExists(atPath: url.path))  // NOT recreated
+    }
+
     /// After we ACCEPT the external change (advance the fingerprint to the disk hash), the next
     /// write must succeed — no false abort (the BLOCKER: a reload/ignore must re-baseline the hash).
     @Test func writeGuardedProceedsAfterAcceptingDiskTruth() throws {

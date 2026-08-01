@@ -55,7 +55,11 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     // Non-modal banner when the open file changed on disk (M1.2) — editing
                     // continues underneath; nothing is written until the user chooses.
-                    if let pending = model.pendingExternalChange {
+                    if let deletedURL = model.deletedFileURL {
+                        DeletedFileBanner(
+                            fileName: deletedURL.lastPathComponent,
+                            onRestore: { model.restoreDeleted() })
+                    } else if let pending = model.pendingExternalChange {
                         ExternalChangeBanner(
                             fileName: pending.url.lastPathComponent,
                             onReload: { model.reloadFromPending() },
@@ -157,6 +161,30 @@ private struct ExternalChangeBanner: View {
             Spacer()
             Button("Reload", action: onReload)
             Button("Keep Mine", action: onIgnore)
+        }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+/// Banner shown when the open file was deleted / moved on disk (M1.2 step 8). The buffer's text is
+/// kept; Save to Restore recreates the file. Autosave stays off so a vanished file is never
+/// silently recreated.
+private struct DeletedFileBanner: View {
+    let fileName: String
+    let onRestore: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "trash.slash").foregroundStyle(.orange)
+            Text(verbatim: fileName).fontWeight(.semibold)
+            Text("was deleted or moved on disk — your text is still here")
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Save to Restore", action: onRestore)
         }
         .font(.callout)
         .padding(.horizontal, 14)

@@ -82,6 +82,11 @@ final class LibraryModel: ObservableObject {
     /// surfaces a non-modal banner (M1.2 step 7); until it's resolved, autosave/save are gated off.
     @Published private(set) var pendingExternalChange: PendingExternalChange?
 
+    /// Set when the open file was deleted (or renamed) on disk under us. The view surfaces a
+    /// "deleted on disk" banner; autosave/save are gated so we NEVER silently recreate a vanished
+    /// file — the user restores it explicitly (M1.2 step 8).
+    @Published private(set) var deletedFileURL: URL?
+
     /// True when the buffer differs from what's on disk.
     var isDirty: Bool {
         guard let document else { return false }
@@ -129,10 +134,35 @@ final class LibraryModel: ObservableObject {
     /// Re-check the open file against disk (content hash, never mtime) and apply any external
     /// change — the belt-and-suspenders net to the presenter, run on window focus / app foreground.
     func reconcileOpenDocument() {
-        guard let doc = document, let contents = try? CoordinatedFileIO.read(doc.url) else {
+        guard let doc = document else { return }
+        if !FileManager.default.fileExists(atPath: doc.url.path) {
+            deletedFileURL = doc.url  // deleted / renamed under us
             return
         }
+        guard let contents = try? CoordinatedFileIO.read(doc.url) else { return }
         applyExternalChange(url: doc.url, newContents: contents)
+    }
+
+    /// The presenter reports the open file was deleted (or renamed) on disk (M1.2 step 8).
+    func handleExternalRemoval(url: URL) {
+        guard url == document?.url else { return }
+        deletedFileURL = url
+    }
+
+    /// Recreate a deleted-on-disk file from the current buffer (the banner's "Save to Restore").
+    /// Writes unguarded — the file is gone, so this deliberately creates it.
+    func restoreDeleted() {
+        guard let url = deletedFileURL, url == document?.url else { return }
+        deletedFileURL = nil
+        do {
+            lastWrittenHash[url] = try CoordinatedFileIO.write(buffer.string, to: url)
+            document = Document(url: url, onDiskText: buffer.string)
+        } catch {
+            lastError = String(
+                localized:
+                    "Couldn't restore \"\(url.lastPathComponent)\": \(error.localizedDescription)"
+            )
+        }
     }
 
     // MARK: - Resolve a pending external change (the banner's actions)
@@ -187,6 +217,7 @@ final class LibraryModel: ObservableObject {
     private func loadSelected() {
         defer { isSwitching = false }
         pendingExternalChange = nil  // fresh file — clear any prior file's pending state
+        deletedFileURL = nil
         guard let url = selectedFile else {
             buffer.load("")
             document = nil
@@ -225,9 +256,16 @@ final class LibraryModel: ObservableObject {
         presenter?.stop()
         presenter = nil
         guard let url else { return }
-        presenter = DocumentPresenter(url: url) { [weak self] contents in
-            MainActor.assumeIsolated { self?.applyExternalChange(url: url, newContents: contents) }
-        }
+        presenter = DocumentPresenter(
+            url: url,
+            onExternalChange: { [weak self] contents in
+                MainActor.assumeIsolated {
+                    self?.applyExternalChange(url: url, newContents: contents)
+                }
+            },
+            onRemoved: { [weak self] in
+                MainActor.assumeIsolated { self?.handleExternalRemoval(url: url) }
+            })
     }
 
     /// Deliver an external on-disk change to the open file (from the presenter or a reconcile scan).
@@ -262,13 +300,17 @@ final class LibraryModel: ObservableObject {
         case .externalChange(let diskContents):
             pendingExternalChange = PendingExternalChange(url: url, diskContents: diskContents)
             throw WriteAborted.externalChange
+        case .removed:
+            deletedFileURL = url  // vanished under us — never silently recreate; surface a banner
+            throw WriteAborted.externalChange
         }
     }
 
     func save() {
         // Nothing to write when the buffer already matches disk — makes a redundant ⌘S a no-op
         // (a rapid ⌘S burst was doing one coordinated read+write per press and janking the UI).
-        guard let doc = document, pendingExternalChange == nil, buffer.string != doc.onDiskText
+        guard let doc = document, pendingExternalChange == nil, deletedFileURL == nil,
+            buffer.string != doc.onDiskText
         else { return }
         do {
             try writeAndRecord(buffer.string, to: doc.url)
@@ -286,7 +328,7 @@ final class LibraryModel: ObservableObject {
     /// explicit `save()` surfaces the error. Skipped mid-switch so a stale `text` is never
     /// written to the newly selected file.
     private func autosaveIfNeeded() {
-        guard !isSwitching, pendingExternalChange == nil, let doc = document,
+        guard !isSwitching, pendingExternalChange == nil, deletedFileURL == nil, let doc = document,
             buffer.string != doc.onDiskText
         else { return }
         do {

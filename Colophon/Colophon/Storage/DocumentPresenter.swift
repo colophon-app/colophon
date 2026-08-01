@@ -24,14 +24,16 @@ final class DocumentPresenter: NSObject, NSFilePresenter {
 
     private let ioQueue = DispatchQueue(label: "app.colophon.document-presenter.io")
     private let onExternalChange: (String) -> Void  // invoked on MAIN with the disk contents
+    private let onRemoved: () -> Void  // invoked on MAIN when the file is deleted / moved away
 
-    init(url: URL, onExternalChange: @escaping (String) -> Void) {
+    init(url: URL, onExternalChange: @escaping (String) -> Void, onRemoved: @escaping () -> Void) {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.name = "app.colophon.document-presenter"
         self.presentedItemURL = url
         self.presentedItemOperationQueue = queue
         self.onExternalChange = onExternalChange
+        self.onRemoved = onRemoved
         super.init()
         NSFileCoordinator.addFilePresenter(self)
     }
@@ -43,11 +45,26 @@ final class DocumentPresenter: NSObject, NSFilePresenter {
 
     func presentedItemDidChange() {
         guard let url = presentedItemURL else { return }
-        ioQueue.async { [onExternalChange] in
-            // A coordinated read throw = "no observation" (transient / missing) → do nothing here;
-            // deletion is handled separately. Never a reload-to-empty on a failed read.
+        ioQueue.async { [onExternalChange, onRemoved] in
+            if !FileManager.default.fileExists(atPath: url.path) {
+                DispatchQueue.main.async { onRemoved() }  // deleted / renamed under us
+                return
+            }
+            // A coordinated read throw = "no observation" (transient) → do nothing; never a
+            // reload-to-empty on a failed read.
             guard let contents = try? CoordinatedFileIO.read(url) else { return }
             DispatchQueue.main.async { onExternalChange(contents) }
         }
+    }
+
+    func accommodatePresentedItemDeletion(completionHandler: @escaping (Error?) -> Void) {
+        DispatchQueue.main.async { [onRemoved] in onRemoved() }
+        completionHandler(nil)
+    }
+
+    func presentedItemDidMove(to newURL: URL) {
+        // An external rename/move: the file at the tracked URL is gone — surface it as a removal
+        // (following the new URL in place is a later refinement).
+        DispatchQueue.main.async { [onRemoved] in onRemoved() }
     }
 }

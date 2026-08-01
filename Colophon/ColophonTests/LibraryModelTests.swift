@@ -84,6 +84,19 @@ struct LibraryModelTests {
         #expect(model.pendingExternalChange == nil)
     }
 
+    @Test func externalDeletionSurfacesBannerAndNeverRecreatesSilently() async throws {
+        let (model, file) = try await openedModel(contents: "v1\n")
+        try FileManager.default.removeItem(at: file)  // external delete
+        model.reconcileOpenDocument()  // simulate regaining focus
+        #expect(model.deletedFileURL == file)
+        #expect(!FileManager.default.fileExists(atPath: file.path))  // not silently recreated
+
+        // "Save to Restore" recreates it from the buffer.
+        model.restoreDeleted()
+        #expect(model.deletedFileURL == nil)
+        #expect((try? String(contentsOf: file, encoding: .utf8)) == "v1\n")
+    }
+
     @Test func ignorePendingKeepsEditsAndAllowsLaterSave() async throws {
         let (model, file) = try await openedModel(contents: "v1\n")
         model.buffer.load("my edit\n")  // dirty
