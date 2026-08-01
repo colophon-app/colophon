@@ -75,7 +75,7 @@ M1.9  发布自动化 + Sparkle + Homebrew ← 收官（但 EdDSA 私钥/SUFeedU
 >
 > **进度（2026-08-01）**：设计 workflow 得出重构性判断——数据安全的病根是「app 用陈旧 buffer 覆盖外部改动」，修复与监听无关（[D-M1-15](./decisions.md)）。**Increment 1 步骤 2–7 已实现 + 单测覆盖（35 用例绿，我自跑）**：② 协调原子写（`replaceItemAt`+`NSFileCoordinator`，D-M1-8 落地）+ SHA-256 指纹 + `writeAndRecord` 收口；③ **写前读防覆盖**（`CoordinatedFileIO.writeGuarded`：磁盘≠上次写的→拒写、升 `pendingExternalChange`；autosave/save 门控）+ 切文件否决（不丢离开文件的编辑）；④ `TextBuffer.reloadPreservingSelection`（原地、保选区、单撤销帧、不发 `changed`、IME 组字时跳过）；⑤ `DocumentPresenter`（`NSFilePresenter`）+ `applyExternalChange`（自写去重→干净静默重载并推进快照+指纹 / 脏文件挂起）；⑥ 聚焦/前台对账扫描（兜底网）；⑦ 脏文件非模态横幅 Reload/Keep-Mine（`reloadFromPending`/`ignorePending`，含 last-writer-wins）。spike 已证 presenter 看得见 agent 写、跳过 Increment 2；FSEvents 留 M1.5。
 >
-> **⚠️ 明早必须真机跑 app 验的（GUI/实况，我验不了）**：(1) **外部改盘→静默重载**：scratch 开干净文件，终端 `printf 'agent wrote\n' > 文件`，Colophon 前台或切回时内容应静默更新、光标不跳顶；(2) **脏文件横幅**：打字不存→外部改同一文件→横幅出现，Reload 取磁盘版（Cmd-Z 撤回你的编辑）、Keep Mine 保留编辑且之后 ⌘S 能存；(3) **自写不触发**：狂按 ⌘S/等自动保存，不应闪重载/弹横幅；(4) **切文件否决**：文件 A 打字→外部改 A→点文件 B，应留在 A 并弹横幅、不丢 A 的编辑；(5) **中文 IME**：组字中外部改盘不应在组字中途替换。
+> **✅ 真机验证通过（2026-08-01）**：外部改盘→干净静默重载(光标不跳顶) / 脏文件弹横幅、Reload(可 Cmd-Z 撤回)、Keep Mine(后写者胜、⌘S 能存)、切文件否决(留在 A、不丢编辑)、自写不触发重载/横幅。**过程中两个发现**：(a) `save()` 之前无脏检查→狂按 ⌘S 每次都协调读写卡主线程 → 已加"buffer==磁盘就跳过"(commit 45abb23);(b) 失焦即存(`willResignActive`)是**正确产品行为**——测试时切到 Terminal 会先把草稿存干净、于是走静默重载而非横幅(真实 Agent 后台改盘、你不切走时文档还脏→会弹横幅;失焦保存本身也被写前读保护、不覆盖)。SwiftUI「Publishing changes from within view updates」切文件警告——记待查(切文件否决里 `selectedFile = oldValue` 在 didSet 内重设,时序警告,功能正常)。
 >
 > ⬜ **步骤 8（外部删除/改名边界硬化——当前删掉打开文件后再写会重建它）+ Compare 视图** 留到与你一起做（本身也需实况测）。
 
